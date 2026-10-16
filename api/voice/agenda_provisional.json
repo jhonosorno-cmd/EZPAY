@@ -1,0 +1,9 @@
+{
+  "_nota": "PROVISIONAL Y FICTICIA. Reemplazar por la agenda que entregue Pagos. Las wallets son marcadores (ezpay-placeholder-*), no cuentas reales: no cotizar contra ellas.",
+  "contacts": [
+    {"alias": "mi-hija", "name": "Laura hija", "walletAddress": "https://ilp.interledger-test.dev/ezpay-placeholder-laura-hija", "previouslyPaid": true},
+    {"alias": "laura-vecina", "name": "Laura vecina", "walletAddress": "https://ilp.interledger-test.dev/ezpay-placeholder-laura-vecina", "previouslyPaid": false},
+    {"alias": "jose", "name": "José", "walletAddress": "https://ilp.interledger-test.dev/ezpay-placeholder-jose", "previouslyPaid": false},
+    {"alias": "carmen", "name": "Carmen", "walletAddress": "https://ilp.interledger-test.dev/ezpay-placeholder-carmen", "previouslyPaid": false}
+  ]
+}
