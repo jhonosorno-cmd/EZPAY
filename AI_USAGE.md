@@ -8,14 +8,17 @@ El texto real de los prompts está en [`prompts/`](prompts/).
 
 ## Herramientas
 
-- <herramienta y versión>: <para qué>
+- Claude Code (modelo Claude Sonnet 5.5): rol Pagos. Escribe los contratos OpenAPI, las pruebas de
+  los mocks y la documentación, a partir de `docs/` y `openspec/`.
 - Claude Code (Claude Sonnet 5.5 y Claude Opus 5.5): módulo de voz `api/voice/`, sus pruebas y el registro de prompts (rol Voz)
 
 ## Uso por componente
 
 | Archivo o componente | Rol | Herramienta | Para qué | Revisión humana |
 |---|---|---|---|---|
-| <ruta> | <rol> | <herramienta> | <tarea> | <quién revisó y cómo: pruebas, lectura> |
+| `openapi/contract-a.yaml`, `openapi/contract-b.yaml`, `openapi/components.yaml` | Pagos | Claude Code | Describir los Contratos A y B (v1 + v1.1) como OpenAPI 3.0.3, con ejemplos por escenario | Pendiente: lectura de Alexander (@jhonosorno-cmd) contra `docs/contratos-*`. Verificado con `npm run lint:openapi` (limpio) y `npm run test:mocks` (en verde) |
+| `openapi/check.test.mjs` | Pagos | Claude Code | Pruebas de aceptación de los mocks escritas desde los contratos, antes del YAML | Pendiente: lectura de Alexander (@jhonosorno-cmd). Se vio fallar primero (sin specs) y luego pasar |
+| `openapi/README.md`, `package.json`, `redocly.yaml`, sección "Mocks de los contratos" del `README.md` | Pagos | Claude Code | Instrucciones de uso de los mocks y configuración del lint | Pendiente: lectura de Alexander (@jhonosorno-cmd). Los comandos documentados se corrieron |
 | `api/voice/amounts.py` | Voz (ML 1) | Claude Code (Claude Sonnet 5.5) | Parser es-CO texto → `Amount` y formato (`amount-parsing`). Borrador en una sesión previa (`prompts/Sebasruiz00/00a-origen-amounts-sesion-previa.md`); revisión adversarial y correcciones H-1 a H-6 (`prompts/Sebasruiz00/01-revision-amounts.md`, `prompts/Sebasruiz00/02-parser-montos.md`) | Sebastián: lo revisó y confirmó que funciona bien (2026-10-16). Evidencia automática: 191 pruebas pasan; revisión adversarial (Prompt 6) hecha por la IA |
 | `api/tests/voice/test_amounts.py` | Voz (ML 1) | Claude Code (Claude Sonnet 5.5) | Pruebas de `amount-parsing`: escenarios del spec, frases de `docs/voz/frases-desarrollo.md` §A y entradas hostiles H-1 a H-8 (mismos prompts que la fila anterior) | Sebastián: lo revisó y confirmó que funciona bien (2026-10-16) |
 | `prompts/Sebasruiz00/` | Voz (ML 1) | Claude Code (Claude Sonnet 5.5 y Claude Opus 5.5) | Transcripción literal de los prompts de Sebastián, con pie de registro (`prompts/Sebasruiz00/03-registro-de-prompts.md`) | Pendiente (Sebastián aún no lo lee) |

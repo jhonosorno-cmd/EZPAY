@@ -8,7 +8,10 @@ Orquestador del turno, parte del esqueleto FastAPI (dueño: rol Pagos; Spec gene
 (ML 2) → transición de `TurnState` y llamadas a Node.
 
 **Estado del acuerdo con ML 2:** la lista de `Decision` quedó acordada con ML 2 el 2026-10-15
-(incluye `REASK`); los campos de `context` siguen siendo borrador hasta cerrar con ML 2. Los
+(incluye `REASK`). El 2026-10-16 el equipo aceptó D3 (texto y usuario no enrolado piden PIN), D4
+(solo se verifica el comando), D9 (`previouslyPaid`) y el puntaje de confianza por pipeline
+(`docs/decisiones.md`). Los nombres exactos de los campos de `context` se cierran con ML 2 en
+`add-decision-engine`. Los
 umbrales del motor (similitud de voz, "monto bajo") siguen siendo decisión de ML 2 (Spec general
 §7). Este spec fija la forma de la colaboración, no los umbrales ni el contenido exacto del
 contexto.
@@ -139,6 +142,54 @@ protección del PIN se especifican después (Open Questions A7).
 - **WHEN** el orquestador invoca al motor
 - **THEN** la verificación de voz del `context` es `NOT_AVAILABLE`
 - **AND** el motor decide `ASK_PIN`
+
+### Requirement: Usuario no enrolado
+El orquestador SHALL indicar en `context` si el usuario tiene huella de voz enrolada. Si no la
+tiene, la verificación de voz es `NOT_AVAILABLE` y el motor decide `ASK_PIN` (D3).
+
+#### Scenario: Comando por voz sin enrolamiento
+- **GIVEN** un usuario sin huella de voz enrolada
+- **WHEN** llega un comando de pago por voz
+- **THEN** el `context` indica que el usuario no está enrolado
+- **AND** el motor decide `ASK_PIN`
+
+### Requirement: Solo se verifica la voz del comando
+La verificación de voz SHALL correr solo sobre el comando. En `AWAITING_CONFIRMATION` el
+orquestador MUST NOT verificar la voz del "sí": usa el resultado de la verificación del comando
+(D4).
+
+#### Scenario: Confirmación sin verificación
+- **GIVEN** un comando cuya voz ya se verificó
+- **WHEN** llega el "sí" en `AWAITING_CONFIRMATION`
+- **THEN** no se llama a la verificación de voz
+- **AND** el `context` conserva el resultado de la verificación del comando
+
+### Requirement: Puntajes de confianza en el contexto
+El orquestador SHALL pasar al motor el puntaje de confianza de la transcripción y el de la
+extracción de intención que entregan los pipelines de ML 1. Los cortes los fija el rol Voz; el
+orquestador no los interpreta.
+
+#### Scenario: Puntajes disponibles para el motor
+- **GIVEN** un comando por voz transcrito y con intención extraída
+- **WHEN** el orquestador invoca al motor
+- **THEN** el `context` incluye el puntaje de confianza de la transcripción y el de la intención
+
+### Requirement: PIN incorrecto
+Ante un PIN incorrecto, el orquestador SHALL responder `AWAITING_PIN` con un `say` que indica los
+intentos restantes, sin códigos HTTP nuevos. Al agotar los intentos de la sesión, responde
+`REJECTED` y no paga. El conteo de intentos lo lleva el componente de PIN de ML 2.
+
+#### Scenario: Primer intento fallido
+- **GIVEN** el turno en `AWAITING_PIN`
+- **WHEN** la usuaria envía un PIN incorrecto por primera vez en la sesión
+- **THEN** el turno responde `AWAITING_PIN`
+- **AND** el `say` indica que quedan 2 intentos
+
+#### Scenario: Intentos agotados
+- **GIVEN** dos intentos fallidos en la sesión
+- **WHEN** la usuaria envía otro PIN incorrecto
+- **THEN** el turno responde `REJECTED`
+- **AND** no se paga
 
 ### Requirement: Audio en `AWAITING_PIN`
 Si llega `audio` en `AWAITING_PIN`, el orquestador MUST NOT transcribirlo ni enviarlo a ningún

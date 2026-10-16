@@ -30,6 +30,20 @@ todo Open Payments → Test Wallet de Interledger. Los contratos entre servicios
 
 _Pendiente: se completa durante el evento._
 
+### Mocks de los contratos
+
+Mientras un servicio no exista, se trabaja contra su mock (Prism, generado desde
+[`openapi/`](openapi/)). Requiere Node 24.
+
+```bash
+npm install
+npm run mock:a   # Contrato A (Node) en 127.0.0.1:4000, para Python
+npm run mock:b   # Contrato B (Python) en 127.0.0.1:8000, para el frontend
+```
+
+Para pedir otra respuesta, un estado o un error concreto (`Prefer: code=…, example=…`) y los
+límites del mock, ver [`openapi/README.md`](openapi/README.md).
+
 ## Team members
 
 * [jhonosorno-cmd](https://github.com/jhonosorno-cmd) — Pagos (Node + Open Payments)
