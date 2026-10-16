@@ -25,7 +25,7 @@ No se propone: pagar con la quote original pasando `grantId` a `/payments`. Qued
 | B-2 | Nuevo `TurnState` `PAYMENT_PENDING`, con un turno automático de verificación unos 20 s después, sin `audio` ni `text` | El pago puede tardar más que el polling de Python | `add-payments-client`, `add-voice-web-client`, `add-voice-understanding` |
 | B-3 | Errores de `/turns`: `AUDIO_OR_TEXT_REQUIRED`, `INVALID_AUDIO`, `AUDIO_TOO_LONG`, `SESSION_NOT_FOUND` | No había códigos para entradas inválidas | `add-voice-understanding`, `add-voice-web-client` |
 | B-4 | La elección de destinatario vuelve como `text` = `alias` | Evitar una segunda transcripción ambigua | `add-voice-understanding`, `add-voice-web-client` |
-| B-5 | `/enrollment`: errores `SAMPLES_REQUIRED`, `INVALID_AUDIO`, `INCONSISTENT_SAMPLES`, y nuevo `GET /enrollment` | Informar por qué falló el registro y si ya existe | `add-voice-web-client` |
+| B-5 | `/enrollment`: errores `SAMPLES_REQUIRED`, `INVALID_AUDIO`, `INCONSISTENT_SAMPLES`, y nuevo `GET /enrollment` | Informar por qué falló el registro y si ya existe. **Revisado por el equipo el 16 oct** | `add-voice-web-client` |
 | B-6 | Antes del "sí" se dice el `receiveAmount`; el costo se dice después de `COMPLETED` | Confirmación corta y clara para la usuaria | `add-voice-understanding`, `add-payments-client` |
 | B-7 | `transcript` es `null` en los turnos de PIN | El PIN nunca se muestra ni se registra | `add-payments-client`, `add-voice-web-client` |
 
@@ -36,8 +36,9 @@ No se propone: pagar con la quote original pasando `grantId` a `/payments`. Qued
 - **B-2 y B-3:** el turno automático de `PAYMENT_PENDING` no trae `audio` ni `text`, y B-3 lo
   rechazaría con `AUDIO_OR_TEXT_REQUIRED`. `speech-transcription` agrega una excepción que Pagos no
   aprobó todavía.
-- **Grant puntual:** Pagos lo cancela al usarse o descartarse; la revisión de ML 2 todavía lo
-  describe con vencimiento semanal.
+- **Grant puntual:** el equipo decidió el 16 oct que **vence por semana** (`docs/decisiones.md`).
+  `add-payments-service` (D13) y `add-payments-client` todavía lo cancelan con `DELETE` y lo piden
+  sin `interval`. Falta decidir cómo se implementa y si A-1 (`DELETE`) sigue haciendo falta.
 - **Reglas del PIN** en `turn-orchestration` (proteger el PIN): escritas, pero sin aprobación
   explícita del equipo.
 - **SEG-1:** hay una propuesta de modificarlo por inclusión, y un análisis de Pagos que concluye
@@ -47,3 +48,10 @@ No se propone: pagar con la quote original pasando `grantId` a `/payments`. Qued
   (`speech-transcription` y `turn-orchestration`), "el PIN nunca llega al LLM"
   (`reply-classification` y `turn-orchestration`), moneda y escala desde la configuración
   (`amount-parsing`, `payments-client` y `wallet-handoff`).
+- **Decisiones del 16 oct que todavía no están en ningún spec:** el texto siempre pide PIN y el
+  usuario no enrolado también (falta en `turn-orchestration`); `previouslyPaid` exige que el
+  esqueleto guarde los destinatarios con pagos completados (falta en `payments-client`); el puntaje
+  de confianza por pipeline (falta en `intent-extraction`, `speech-transcription` y en el contexto
+  del motor).
+- **Cambio de ML 2 sin crear:** el motor, la verificación, el enrolamiento y el PIN no tienen spec
+  (`add-decision-engine`).

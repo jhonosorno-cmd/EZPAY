@@ -164,16 +164,16 @@ Las responsabilidades de cada rol están en `docs/roles.md`.
 
 **Independencia de las pruebas:** ML 2 escribe el motor y también sus pruebas de aceptación. Para
 que no se pruebe a sí misma, las pruebas salen de los requisitos SEG/PRIV (no del código) y las
-revisa otra persona.
+ejecuta Frontend.
 
-**[DECIDIDO]** (PLAN §6) Hitos, con **[PROPUESTA]** de entregable por rol:
+**[DECIDIDO]** (PLAN §6) Hitos. Entregables por rol actualizados el 16 de octubre (ver `docs/decisiones.md`):
 
 | Hito | Meta | Pagos (Node + Open Payments) | Frontend | ML 1 | ML 2 |
 |---|---|---|---|---|---|
-| **H1** — comando por texto → pago real | Vie 14:00 | Grant, continue, quote y payment contra la Test Wallet + esqueleto FastAPI + cliente de Node en Python | Campo de texto, redirect a la wallet, página de callback | Intención desde texto, agenda y conversión de montos | Motor mínimo |
-| **H2** — voz → pago | Vie 17:30 | Integración de punta a punta | Grabación y TTS | Whisper + batería de frases | Confirmación hablada en el motor |
-| **H3** — verificación de hablante | Sáb 09:30 | Robustez: rotación de token, pagos de resultado incierto | Pantalla de PIN | Batería de frases con ruido | SpeechBrain, enrolamiento y PIN integrados al motor |
-| **H4** — exceso de límite + pulido | Sáb 10:30 | Flujo de reautorización | Pulido de la demo | Pulido de frases | Pruebas de aceptación de punta a punta |
+| **H1** — comando por texto → pago real | Vie 14:00 | Grant, continue, quote y payment contra la Test Wallet + esqueleto FastAPI (incluye `AWAITING_PIN`) + cliente de Node en Python | Campo de texto, redirect a la wallet, página de callback | Intención desde texto, agenda y conversión de montos | Motor (tabla de reglas) y PIN mínimo |
+| **H2** — voz → pago | Vie 17:30 | Integración de punta a punta | Grabación y TTS | Whisper + batería de frases | Enrolamiento, verificación de hablante y calibración inicial |
+| **H3** — verificación de hablante | Sáb 09:30 | Robustez: rotación de token, pagos de resultado incierto | Pantalla de PIN | Batería de frases con ruido | Enrolamiento y recalibración en la sala; verificación integrada al motor |
+| **H4** — exceso de límite + pulido | Sáb 10:30 | Flujo de reautorización | Pulido de la demo | Pulido de frases; consolidar `AI_USAGE.md` | Umbral congelado y ajustes según las pruebas (las ejecuta Frontend) |
 
 **Sin dueño todavía:** pitch, guion de demo y slides (ver §1 #8).
 

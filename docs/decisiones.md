@@ -1,0 +1,31 @@
+# Registro de decisiones del equipo
+
+Decisiones tomadas por los cuatro. Formato: qué se decidió, por qué y qué cambia. Las decisiones
+de un solo rol viven en el spec de ese rol.
+
+## 2026-10-16 — Decisiones de Verificación y calidad (ML 2)
+
+| # | Tema | Decisión | Qué cambia |
+|---|---|---|---|
+| 1 | Vencimiento del grant puntual del exceso de límite | **Vence por semana** | Contradice `add-payments-service` D13 y `add-payments-client` ("se cancela con `DELETE`, sin `interval`"). **[PARA DECIDIR]** cómo se implementa: ver "Pendientes" abajo |
+| 2 | Comando por texto (D3) | **Siempre pide PIN**, sin modo de desarrollo | El PIN mínimo pasa de H3 a H1. Hasta que exista el teclado, el PIN se escribe en el campo de texto (`AWAITING_PIN` → `text`) |
+| 3 | Verificación del "sí" (D4) | **Solo se verifica el comando**, no el "sí" | El "sí" (~0,5 s) no alcanza para verificar: con 1,5 s los puntajes ya se solapan |
+| 3b | Puntaje de confianza por pipeline | **Cada pipeline entrega un puntaje de confianza.** Riguroso en la extracción de intención; más flexible en la transcripción | Requisito nuevo para `add-voice-understanding` (`intent-extraction` y `speech-transcription`) y campo nuevo en el contexto del motor. **[PARA DECIDIR]** los valores de corte (rol Voz) |
+| 4 | Destinatario nuevo (D9) | **Sin un pago `COMPLETED` previo**, con Laura sembrada como conocida | El esqueleto FastAPI guarda la lista de destinatarios con pagos completados y se la pasa al motor (`previouslyPaid`) |
+| 5 | Errores de `/enrollment` (D8, cambio B-5) | Revisados por el equipo | Ver `contratos-cambios-propuestos-v1.1.md` |
+| 6 | Reparto de carga (D7) | Respaldo del esqueleto FastAPI: **Frontend**. Consolida `AI_USAGE.md`: **Voz (ML 1)**. Ejecuta las pruebas de aceptación: **Frontend** (no las corre quien escribe el motor) | ML 2: motor y PIN en H1; enrolamiento, verificación y calibración en H2–H3. Ver `roles.md` y `spec-general.md` §7 |
+
+Decisiones del rol ML 2 que el equipo escuchó (las toma ML 2): tabla de reglas del motor (D2: el
+PIN se suma al "sí"; un pago que excede el presupuesto no pide PIN por monto), diseño del PIN (D5)
+y umbral de voz 0.45 provisional (D6), que se fija en la sala con el micrófono de solapa.
+
+### Pendientes de estas decisiones
+
+- **Grant puntual semanal:** ¿se pide con `limits.interval` de una semana (no probado en la Test
+  Wallet), o Node lo vence por su cuenta a los 7 días? ¿Se sigue cancelando al usarse
+  (`DELETE /v1/grants/{id}`, cambio A-1) o solo vence? Hasta decidirlo, `add-payments-service` y
+  `add-payments-client` describen la versión anterior.
+- **ML 2 crea `openspec/changes/add-decision-engine/`** con `decision-engine`,
+  `speaker-verification`, `voice-enrollment` y `pin-validation`. Sin ese cambio no hay spec para
+  el motor de H1.
+- **Rol Voz** agrega el puntaje de confianza a `intent-extraction` y `speech-transcription`.
