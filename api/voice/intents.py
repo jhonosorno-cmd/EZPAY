@@ -34,6 +34,16 @@ class Intent:
     recipient: str | None
     status: Status
 
+    def to_dict(self) -> dict:
+        """Forma de `intent` en el `context` del motor (camelCase; `amount` con la forma del contrato)."""
+        return {
+            "action": self.action.value,
+            "amount": self.amount.to_dict() if self.amount else None,
+            "amountError": self.amount_error.value if self.amount_error else None,
+            "recipient": self.recipient,
+            "status": self.status.value,
+        }
+
 
 PAY_VERBS = {
     "envia", "enviale", "enviales", "envie", "enviele", "envieles", "enviar", "enviarle", "enviarles",
@@ -50,7 +60,7 @@ PREFIXES = (("quiero",), ("quisiera",), ("necesito",), ("me", "gustaria"))
 COURTESY = (("por", "favor"), ("porfa",), ("porfavor",))
 PREPOSITIONS = {"a", "para"}
 NUMBER_WORDS = set(UNITS) | {"mil", "millon", "millones", "medio"}
-AMOUNT_WORDS = NUMBER_WORDS | {"y", "peso", "pesos", "cop", "de", "$"} | SLANG_WORDS
+AMOUNT_WORDS = NUMBER_WORDS | {"y", "o", "peso", "pesos", "cop", "de", "$"} | SLANG_WORDS
 _NUMERIC = re.compile(r"\$?[0-9][0-9.,]*")
 _WALLET_LIKE = re.compile(r"https?:|://|www\.|@|\$[a-z]")
 _SENTENCE_END = re.compile(r"(?<![0-9])\.|\.(?![0-9])|[?!;:]")
@@ -127,7 +137,7 @@ def _split(rest: list[str]) -> tuple[list[str], list[str] | None]:
 def _recipient(tokens: list[str] | None) -> tuple[str | None, Status]:
     if not tokens:
         return None, Status.UNCLEAR
-    if any(t == "y" or t in PREPOSITIONS for t in tokens):
+    if any(t in ("y", "o") or t in PREPOSITIONS for t in tokens):
         return None, Status.AMBIGUOUS                      # más de un destinatario
     if any(_NUMERIC.fullmatch(t) or t in ("mil", "millon", "millones") for t in tokens):
         return None, Status.AMBIGUOUS                      # otro monto después del destinatario
@@ -151,6 +161,11 @@ def _two_amounts(tokens: list[str], cfg: AssetConfig) -> bool:
 def _amount(tokens: list[str], cfg: AssetConfig) -> tuple[Amount | None, AmountError | None, Status]:
     if not any(_numeric(t) for t in tokens):
         return None, None, Status.UNCLEAR                  # sin monto ("plata", nada)
+    if "o" in tokens:                                      # "veinte mil o treinta mil"
+        parts = " ".join(tokens).split(" o ")
+        if len(parts) > 1 and all(p.strip() and parse_amount(p, cfg).ok for p in parts):
+            return None, None, Status.AMBIGUOUS
+        return None, None, Status.UNCLEAR
     if not all(_amountish(t) for t in tokens):
         return None, None, Status.UNCLEAR                  # el monto trae otras palabras
     r = parse_amount(" ".join(tokens), cfg)

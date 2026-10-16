@@ -10,11 +10,12 @@ Pruebas: desde `api/`, `PYTHONPATH=. .venv/Scripts/python.exe -m pytest tests -q
 |---|---|---|---|
 | `amount-parsing` | `amounts.py` | `test_amounts.py` | 191 |
 | `reply-classification` | `replies.py` | `test_replies.py` | 72 |
-| `say` (catálogo de `contrato-voz.md` §7) | `phrases.py` | `test_phrases.py` | 56 |
+| `say` (catálogo de `contrato-voz.md` §7, con `PAYMENT_PENDING` de v1.1) | `phrases.py` | `test_phrases.py` | 57 |
 | `contact-resolution` | `contacts.py`, `agenda_provisional.json` | `test_contacts.py` | 55 |
-| `intent-extraction` (solo reglas, sin LLM) | `intents.py` | `test_intents.py` | 98 |
+| `intent-extraction` (solo reglas, sin LLM; "o" = dos montos o destinatarios) | `intents.py` | `test_intents.py` | 105 |
+| Forma para el motor: `to_dict()` con los nombres del `context` de ML 2 | `intents.py`, `contacts.py` | `test_context_shapes.py` | 19 |
 | Todo el paquete: sin LLM, sin red, sin disco, sin float | `text.py`, `config.py` | `test_package.py` | 22 |
-| **Total** | | | **494** |
+| **Total** | | | **521** |
 
 ## Cobertura de la gramática de intención (`docs/voz/frases-desarrollo.md` §D, 30 frases)
 

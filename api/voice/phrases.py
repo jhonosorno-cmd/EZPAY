@@ -31,6 +31,7 @@ class Situation(str, Enum):
     AUTH_REDIRECT = "AUTH_REDIRECT"
     AUTH_APPROVED = "AUTH_APPROVED"
     AUTH_REJECTED = "AUTH_REJECTED"
+    PAYMENT_PENDING = "PAYMENT_PENDING"
 
 
 S = Situation
@@ -55,6 +56,7 @@ TEMPLATES = {
     S.AUTH_REDIRECT: "Te voy a llevar a tu billetera. Toca el botón que dice Aprobar.",
     S.AUTH_APPROVED: "Listo, autorizaste el pago.",
     S.AUTH_REJECTED: "No autorizaste el pago. No envié nada.",
+    S.PAYMENT_PENDING: "Tu envío está en camino. No hace falta repetirlo.",
 }
 NO_DECIMALS = "Solo puedo enviar montos sin decimales. ¿Me lo dices otra vez?"
 NOT_FOUND_GENERIC = "No encontré a esa persona en tu agenda."

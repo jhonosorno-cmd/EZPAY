@@ -28,6 +28,10 @@ class Option:
     alias: str
     name: str
 
+    def to_dict(self) -> dict:
+        """Forma de `options` en el Contrato B y en el `context` del motor: solo alias y nombre."""
+        return {"alias": self.alias, "name": self.name}
+
 
 @dataclass(frozen=True)
 class Contact:
@@ -38,6 +42,11 @@ class Contact:
 
     def option(self) -> Option:
         return Option(self.alias, self.name)
+
+    def to_dict(self) -> dict:
+        """Forma de `resolution.contact` en el `context` del motor (camelCase)."""
+        return {"alias": self.alias, "name": self.name, "walletAddress": self.wallet_address,
+                "previouslyPaid": self.previously_paid}
 
 
 class Kind(str, Enum):
@@ -52,6 +61,14 @@ class Resolution:
     kind: Kind
     contact: Contact | None = None
     options: tuple[Option, ...] = ()
+
+    def to_dict(self) -> dict:
+        """Forma de `resolution` en el `context` del motor. UNCLEAR solo sale de resolve_choice."""
+        if self.kind is Kind.RESOLVED:
+            return {"kind": self.kind.value, "contact": self.contact.to_dict()}
+        if self.kind is Kind.CHOICE:
+            return {"kind": self.kind.value, "options": [o.to_dict() for o in self.options]}
+        return {"kind": self.kind.value}
 
 
 def load_agenda(path: Path | str) -> tuple[Contact, ...]:
