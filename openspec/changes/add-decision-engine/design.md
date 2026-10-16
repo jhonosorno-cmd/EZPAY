@@ -322,8 +322,9 @@ PIN bloqueado (`locked: true`) hasta que se corra el script de reinicio. Con el 
 el componente MUST NOT validar más intentos.
 3. Un PIN correcto reinicia el contador global de fallos.
 
-**[LIMITACIÓN CONOCIDA H1]** el contador global vive en memoria del proceso: un reinicio del
-backend lo pierde. Se persiste a partir de H2.
+**[DIFERIDO A H2]** decidido: en H1 el contador global vive en la memoria del proceso; en H1 un
+reinicio del backend reinicia el contador global y el bloqueo por 5 fallos solo vale mientras el
+proceso vive. Se persiste en H2.
 
 #### Privacidad del PIN
 
@@ -361,4 +362,4 @@ alimenta el `say` del orquestador. El motor MUST NOT validar el PIN ni acceder a
 ### pin-validation
 | Punto | Dueño / estado |
 | --- | --- |
-| Contador global del PIN en memoria del proceso | **[LIMITACIÓN CONOCIDA H1]** — persistir en H2+ |
+| Alcance H2: persistir el contador global de fallos del PIN (en H1 vive en la memoria del proceso; un reinicio del backend lo reinicia y el bloqueo por 5 fallos solo vale mientras el proceso vive) | **[DIFERIDO A H2]** |

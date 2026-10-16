@@ -57,6 +57,13 @@ que el tiempo de respuesta no revele información del PIN.
 ### Requirement: Contadores de intentos
 El componente de PIN SHALL llevar los contadores: al tercer fallo de la sesión reporta `sessionFailures >= 3` (el motor decide `REJECT`); con 5 fallos seguidos en total marca `locked: true` hasta el script de reinicio y MUST NOT validar más intentos; un PIN correcto reinicia el contador global. En H1 el contador global vive en la memoria del proceso (limitación conocida).
 
+#### Scenario: Reinicio del backend en H1
+
+- **GIVEN** 3 fallos globales acumulados y el backend corriendo
+- **WHEN** el backend se reinicia (por ejemplo, en un despliegue)
+- **THEN** el contador global vuelve a 0 y un bloqueo activo se pierde
+- **AND** en H1 el bloqueo por 5 fallos solo vale mientras el proceso vive; la persistencia queda **[DIFERIDA A H2]**
+
 #### Scenario: Tercer fallo de la sesión
 
 - **GIVEN** dos intentos fallidos en la sesión (`sessionFailures == 2`)
