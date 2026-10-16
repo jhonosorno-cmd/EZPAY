@@ -35,6 +35,7 @@ El texto real de los prompts está en [`prompts/`](prompts/).
 | `api/tests/voice/test_contacts.py` | Voz (ML 1) | Claude Code (Claude Opus 5.5) | Pruebas de `contact-resolution` desde el spec y `frases-desarrollo.md` §B (`prompts/Sebasruiz00/08-todas-las-etapas.md`) | Pendiente (Sebastián aún no lo lee) |
 | `api/tests/voice/test_intents.py` | Voz (ML 1) | Claude Code (Claude Opus 5.5) | Pruebas de `intent-extraction` desde el spec y las 30 frases de `frases-desarrollo.md` §D (`prompts/Sebasruiz00/08-todas-las-etapas.md`) | Pendiente (Sebastián aún no lo lee) |
 | `api/tests/voice/test_package.py` | Voz (ML 1) | Claude Code (Claude Opus 5.5) | Pruebas del paquete: sin LLM, sin red, sin disco, sin float (`prompts/Sebasruiz00/08-todas-las-etapas.md`) | Pendiente (Sebastián aún no lo lee) |
+| `api/tests/voice/test_context_shapes.py`; `to_dict()` en `api/voice/intents.py` y `api/voice/contacts.py`; `PAYMENT_PENDING` en `api/voice/phrases.py` | Voz (ML 1) | Claude Code (Claude Opus 5.5) | Forma de `intent` y `resolution` con los nombres del `context` del motor de ML 2, "o" entre montos o destinatarios, y texto de `PAYMENT_PENDING` (v1.1) (`prompts/Sebasruiz00/11-integracion-contexto.md`) | Pendiente (Sebastián aún no lo lee). Evidencia automática: 521 pruebas pasan |
 
 ## Archivos con mínima o ninguna IA
 
