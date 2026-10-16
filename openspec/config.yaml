@@ -1,0 +1,48 @@
+schema: spec-driven
+
+context: |
+  Hackathon Open Payments 2026 (Medellín, 16–17 oct). Pagos por voz con grants limitados.
+  Escribir todos los artefactos de OpenSpec en español neutro; identificadores, código y
+  códigos de error en inglés.
+  Regla del evento: todo el código se escribe durante el evento. Los specs y diseños previos
+  no llevan código.
+  Fuente de verdad de las interfaces entre servicios: "docs/contratos-http-v1.md", anexo de
+  "docs/spec-general.md". Los cambios propuestos y aún no ratificados están en
+  "docs/contratos-cambios-propuestos-v1.1.md". Los contratos son decisión del equipo: un spec
+  nunca los contradice; si hace falta cambiarlos, se marca como cambio de contrato y requiere el
+  OK de los cuatro.
+  Requisitos comunes a todos los roles: capabilities payment-safety, voice-privacy y
+  service-conventions (cambio add-team-baseline; después, openspec/specs/).
+  Seguridad: nunca escribir llaves, tokens ni secretos en artefactos, logs o prompts.
+  Los puntos marcados [VERIFICAR] dependen de experimentos (E0–E4) y no se dan por ciertos.
+
+# Project context (optional)
+# Add only constraints that should guide OpenSpec artifacts and workflows.
+# Include constraints an agent cannot infer by reading the code.
+# Keep general project documentation and discoverable codebase facts out.
+# Example:
+#   context: |
+#     Designs and tasks must cover Windows, macOS, and Linux
+#     Write all artifacts in Spanish
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing

@@ -1,0 +1,34 @@
+# Secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Dependencies and environments
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Local data (never commit voice or databases)
+*.db
+*.db-*
+*.sqlite
+*.wav
+*.webm
+*.ogg
+*.mp3
+*.m4a
+*.flac
+*.npy
+pretrained_models/
+.cache/
+
+# Build and tooling
+dist/
+build/
+coverage/
+.DS_Store
+.atl/

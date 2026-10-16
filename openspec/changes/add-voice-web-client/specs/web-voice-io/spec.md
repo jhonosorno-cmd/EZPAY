@@ -1,0 +1,70 @@
+# Spec Delta — web-voice-io
+
+## Purpose
+
+Entrada y salida de voz en el navegador. El navegador graba y reproduce; no transcribe, no verifica la
+voz y no detecta silencio: eso lo hace Python (ML 1, `speech-transcription`; ML 2, verificación).
+Origen: Contratos HTTP v1 (TTS del navegador, `[DECIDIDO]`), PRIV-1, SEG-2, y los pedidos de ML 1
+(V-08, V-13, X-4) y ML 2 (X-1, X-2).
+
+## ADDED Requirements
+
+### Requirement: Grabación con botón (push-to-talk)
+La web app SHALL grabar solo mientras la usuaria mantiene presionado el botón de hablar (o la barra espaciadora), con `MediaRecorder` y el formato por defecto del navegador. Al soltar, envía el audio en el campo `audio` de `POST /api/turns` como archivo con una extensión que coincida con su tipo (por ejemplo, `comando.webm` para `audio/webm`).
+
+#### Scenario: Comando grabado
+- **WHEN** la usuaria mantiene presionado el botón, dice "envíale veinte mil a mi hija" y suelta
+- **THEN** sale un `POST /api/turns` multipart con un único campo `audio`
+- **AND** el nombre del archivo tiene la extensión del tipo grabado
+
+#### Scenario: Toque accidental
+- **WHEN** la usuaria suelta el botón antes de 0,5 s
+- **THEN** no se envía nada y la pantalla pide mantenerlo presionado
+
+### Requirement: Tope de duración
+La web app SHALL cortar la grabación a los 15 s y enviar lo grabado hasta ese momento. El servidor tiene su propio tope (ML 2 propone 30 s y ML 1 el error `AUDIO_TOO_LONG`); el del navegador evita llegar a él.
+
+#### Scenario: Comando demasiado largo
+- **WHEN** la usuaria sigue hablando con el botón presionado durante 20 s
+- **THEN** la grabación se corta a los 15 s y se envía
+
+### Requirement: El audio no se guarda en el navegador (PRIV-1)
+El audio grabado SHALL existir solo en memoria hasta que se envía. MUST NOT guardarse en `localStorage`, `sessionStorage`, IndexedDB, caché ni descargas, ni escribirse en la consola. Al terminar cada grabación, la web app SHALL detener todas las pistas del micrófono.
+
+#### Scenario: Después de enviar
+- **WHEN** se envía un comando grabado y se revisa el almacenamiento del navegador
+- **THEN** no hay audio guardado
+- **AND** el indicador de micrófono del navegador está apagado
+
+### Requirement: Nunca grabar mientras habla el TTS
+La web app MUST NOT grabar mientras el TTS está hablando, para que el micrófono no capte la pregunta del sistema (ML 1 V-13: el eco "¿Le envío 20.000 a Laura?" se clasificaría como respuesta). Si la usuaria presiona el botón de hablar mientras el TTS habla, la web app SHALL cancelar el TTS y empezar a grabar después.
+
+#### Scenario: Botón durante el TTS
+- **WHEN** el TTS está leyendo el `say` y la usuaria presiona el botón de hablar
+- **THEN** el TTS se calla antes de que empiece la grabación
+
+### Requirement: Lectura del say con el TTS del navegador
+La web app SHALL leer cada `say` con `speechSynthesis`, con una voz en español elegida en este orden: `es-CO`, `es-419`, `es-MX`, `es-US`, cualquier `es-*`. Las voces cargan de forma asíncrona, así que la elección se hace después del evento `voiceschanged`. Si no hay ninguna voz en español, el `say` se muestra solo como texto.
+
+#### Scenario: Elección de voz
+- **WHEN** el navegador ofrece `es-ES` y `es-MX`
+- **THEN** el `say` se lee con la voz `es-MX`
+
+#### Scenario: Monto hablado
+- **WHEN** el TTS lee "¿Le envío 20.000 pesos a Laura?"
+- **THEN** se oye "veinte mil" (se verifica en la laptop de la demo, ML 1 F-4)
+
+### Requirement: Desbloqueo del audio por un gesto
+Los navegadores bloquean `speechSynthesis` hasta que hay un gesto de la usuaria. Cuando la página carga (también al volver de la wallet), la web app SHALL mostrar un botón grande "Continuar" y leer el `say` pendiente al tocarlo.
+
+#### Scenario: Vuelta de la wallet
+- **WHEN** la página se recarga en `/grant-callback` con un `TurnResponse` listo
+- **THEN** se muestra el botón "Continuar"
+- **AND** el `say` se lee después de tocarlo
+
+### Requirement: Permiso del micrófono
+Si el navegador niega el micrófono, la web app SHALL decirlo en pantalla y dejar el campo de texto como camino alterno (con PIN, capability `web-conversation`). La web app SHALL correr en un contexto seguro: `localhost` en la laptop de la demo.
+
+#### Scenario: Micrófono denegado
+- **WHEN** la usuaria rechaza el permiso del micrófono
+- **THEN** la pantalla explica cómo activarlo y ofrece escribir el comando
