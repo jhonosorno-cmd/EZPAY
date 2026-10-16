@@ -4,7 +4,7 @@ Prompts enviados el 16 de octubre de 2026 al agente del rol Pagos (Claude Code),
 
 ---
 
-## Prompt 1 (aprobado el plan con este mensaje)
+## Prompt 1 (pedido del plan)
 
 ````text
 Proponeme el plan de la unidad 1 (`openapi.yaml` de los contratos A y B con v1.1, y mocks con `prism mock`) en 3 a 6 viñetas.
