@@ -2,7 +2,7 @@
 
 - [ ] 1.1 Fijar `highAmountThreshold` con los experimentos X-2 y X-4 (por defecto `null`, desactivado)
 - [ ] 1.2 Voz propone `minIntentConfidence` y `minTranscriptConfidence` tras su batería (por defecto `null`)
-- [ ] 1.3 Pagos decide el aviso de la regla 6 pasada la ventana de `pendingWindowSeconds`
+- [ ] 1.3 Comunicar a Pagos la regla 6b (aviso de pago no confirmado pasada la ventana) y confirmar el texto de su plantilla
 - [ ] 1.4 H2: persistir el contador global de fallos del PIN (en H1 vive en la memoria del proceso)
 
 ## 2. H1 (viernes 14:00)

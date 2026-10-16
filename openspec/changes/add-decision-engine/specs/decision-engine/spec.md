@@ -228,15 +228,57 @@ En fase `COMMAND` el motor SHALL evaluar en orden las reglas 1, 2, 2b, 3, 4, 5, 
 
 #### Scenario: Pago pendiente a otro destinatario
 
-- **GIVEN** fase `COMMAND` con un `pendingPayment` a un destinatario distinto del comando
+- **GIVEN** fase `COMMAND` con un `pendingPayment` a un destinatario distinto del comando, incluso fuera de la ventana
 - **WHEN** el motor decide
-- **THEN** la regla 6 no aplica y la decisión sale de las reglas siguientes
+- **THEN** ni la regla 6 ni la 6b aplican y la decisión sale de las reglas siguientes
 
-#### Scenario: Pago pendiente pasado el tope
+#### Scenario: Pago pendiente COMPLETED o FAILED no avisa
 
-- **GIVEN** fase `COMMAND` con un `pendingPayment` al mismo destinatario y `now` fuera de `pendingWindowSeconds`
+- **GIVEN** fase `COMMAND` con un `pendingPayment` al mismo destinatario con `status: "COMPLETED"` o `"FAILED"`
 - **WHEN** el motor decide
-- **THEN** la regla 6 no aplica y la decisión sale de las reglas siguientes
+- **THEN** la condición 6b no se marca (`warnUnconfirmed = false`) y la decisión sale de las reglas siguientes
+
+#### Scenario: Pago pendiente pasado el tope (marca warnUnconfirmed)
+
+- **GIVEN** fase `COMMAND` con un `pendingPayment` al mismo destinatario, `status: "PROCESSING"` y `now` fuera de `pendingWindowSeconds`
+- **WHEN** el motor decide
+- **THEN** la regla 6 no aplica y la 6b marca `warnUnconfirmed = true`: la decisión sale de las reglas 7, 8 y 9
+- **AND** si llega a la regla 9, el `reason` es `PENDING_PAYMENT_UNCONFIRMED`
+
+#### Scenario: Aviso post-ventana con voz verificada
+
+- **GIVEN** fase `COMMAND`, voz verificada, Laura con `previouslyPaid == true` y un `pendingPayment` a ella con `status: "PROCESSING"` y `now - createdAt` a los 3 min (fuera de `pendingWindowSeconds`)
+- **WHEN** el motor decide
+- **THEN** la 6b marca `warnUnconfirmed` y la decisión es `ASK_CONFIRM` con `reason: PENDING_PAYMENT_UNCONFIRMED` (regla 9)
+- **AND** con `reply == "YES"` devuelve `PAY` con `reason: CONFIRMED`
+- **AND** el orquestador lo trata como intención nueva: quote nueva e `Idempotency-Key` nueva
+
+#### Scenario: La advertencia no salta el PIN
+
+- **GIVEN** fase `COMMAND`, comando por texto y la condición 6b marcada (pendiente `PROCESSING` al mismo destinatario, fuera de la ventana)
+- **WHEN** el motor decide
+- **THEN** la regla 7 aplica antes: `ASK_PIN` con `reason: VOICE_NOT_VERIFIED` (la advertencia no devuelve `ASK_CONFIRM` antes de las reglas 7 y 8)
+- **AND** en fase `PIN` con `pin.result == "OK"` devuelve `ASK_CONFIRM` con `reason: PENDING_PAYMENT_UNCONFIRMED`
+
+#### Scenario: Aviso post-ventana con exceso de presupuesto
+
+- **GIVEN** fase `COMMAND`, voz verificada y la condición 6b marcada con `quote.exceedsRemaining == true`
+- **WHEN** el motor decide
+- **THEN** devuelve `ASK_CONFIRM` con `reason: PENDING_PAYMENT_UNCONFIRMED`
+- **AND** con `reply == "YES"` devuelve `REQUIRE_AUTH` (SEG-5)
+
+#### Scenario: No ante la advertencia
+
+- **GIVEN** fase `CONFIRMATION` tras el aviso (6b marcada) con `reply == "NO"`
+- **WHEN** el motor decide
+- **THEN** devuelve `REJECT` con `reason: USER_DECLINED`
+
+#### Scenario: Pago sin paymentId cuenta como PROCESSING
+
+- **GIVEN** los 3 intentos de `POST /v1/payments` terminaron en `502 UPSTREAM_ERROR` sin `paymentId`
+- **WHEN** el orquestador arma el `context` para un comando al mismo destinatario
+- **THEN** `pendingPayment.status` es `"PROCESSING"` desde el primer intento y `createdAt` es el momento del primer intento
+- **AND** dentro de la ventana aplica la regla 6 (`REASK`) y fuera de ella la 6b (`warnUnconfirmed`)
 
 #### Scenario: Comando por texto pide PIN
 
