@@ -3,6 +3,11 @@
 Decisiones tomadas por los cuatro. Formato: qué se decidió, por qué y qué cambia. Las decisiones
 de un solo rol viven en el spec de ese rol.
 
+## 2026-10-16 — Contratos v1.1 ratificados
+
+Los cambios A-1 a A-3 y B-1 a B-9 de `contratos-cambios-propuestos-v1.1.md` quedan ratificados por
+los cuatro. Contrato vigente: v1 más v1.1. Las novedades que surjan se deciden en equipo.
+
 ## 2026-10-16 — Decisiones de Verificación y calidad (ML 2)
 
 | # | Tema | Decisión | Qué cambia |

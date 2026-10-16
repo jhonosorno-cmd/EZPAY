@@ -8,13 +8,16 @@ El texto real de los prompts está en [`prompts/`](prompts/).
 
 ## Herramientas
 
-- <herramienta y versión>: <para qué>
+- Claude Code (modelo Claude Sonnet 5.5): rol Pagos. Escribe los contratos OpenAPI, las pruebas de
+  los mocks y la documentación, a partir de `docs/` y `openspec/`.
 
 ## Uso por componente
 
 | Archivo o componente | Rol | Herramienta | Para qué | Revisión humana |
 |---|---|---|---|---|
-| <ruta> | <rol> | <herramienta> | <tarea> | <quién revisó y cómo: pruebas, lectura> |
+| `openapi/contract-a.yaml`, `openapi/contract-b.yaml`, `openapi/components.yaml` | Pagos | Claude Code | Describir los Contratos A y B (v1 + v1.1) como OpenAPI 3.0.3, con ejemplos por escenario | Pendiente: lectura de Alexander (@jhonosorno-cmd) contra `docs/contratos-*`. Verificado con `npm run lint:openapi` (limpio) y `npm run test:mocks` (en verde) |
+| `openapi/check.test.mjs` | Pagos | Claude Code | Pruebas de aceptación de los mocks escritas desde los contratos, antes del YAML | Pendiente: lectura de Alexander (@jhonosorno-cmd). Se vio fallar primero (sin specs) y luego pasar |
+| `openapi/README.md`, `package.json`, `redocly.yaml`, sección "Mocks de los contratos" del `README.md` | Pagos | Claude Code | Instrucciones de uso de los mocks y configuración del lint | Pendiente: lectura de Alexander (@jhonosorno-cmd). Los comandos documentados se corrieron |
 
 ## Archivos con mínima o ninguna IA
 

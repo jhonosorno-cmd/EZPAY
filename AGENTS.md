@@ -13,8 +13,8 @@ con la persona qué rol tiene (ver `README.md` § Team members y `docs/roles.md`
 | Verificación y calidad | motor, verificación de hablante y PIN en `api/`; pruebas de aceptación | (por crear) |
 
 - `docs/`, `openspec/config.yaml` y `add-team-baseline` son del equipo: cambiarlos requiere el OK
-  de los cuatro. Los contratos vigentes son v1; los cambios de
-  `docs/contratos-cambios-propuestos-v1.1.md` no se implementan hasta que se ratifiquen.
+  de los cuatro. Contrato vigente: v1 más
+  `docs/contratos-cambios-propuestos-v1.1.md` (ratificado el 16 oct; gana si chocan).
 - Cada persona registra sus prompts en `prompts/<usuario-github>/` (ver `prompts/README.md`).
 
 ## Reglas

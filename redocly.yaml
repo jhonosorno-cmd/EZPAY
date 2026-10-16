@@ -1,0 +1,10 @@
+# Lint config for the EZPAY contracts. Recommended rules, minus the ones that do not apply to
+# two internal, localhost-only APIs.
+extends:
+  - recommended
+rules:
+  security-defined: off          # internal services on 127.0.0.1; no auth scheme by design
+  info-license: off
+  no-server-example.com: off     # the contracts are for localhost (CONV-5)
+  tag-description: off
+  operation-4xx-response: off    # health and grant-callback have no contractual 4xx

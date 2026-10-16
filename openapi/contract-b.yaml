@@ -1,0 +1,544 @@
+openapi: 3.0.3
+info:
+  title: EZPAY Contract B (Frontend -> Python)
+  version: 1.1.0
+  description: |
+    The only API the browser knows. Source of truth: `docs/contratos-http-v1.md` plus
+    `docs/contratos-cambios-propuestos-v1.1.md` (ratified on 2026-10-16; v1.1 wins).
+
+    Conventions: every error is `{ error: { code, message } }` and clients decide by `code`
+    (CONV-2). The frontend sends an optional `X-Request-Id` per user action (CONV-3).
+    The frontend never polls: Python waits for the payment (~10 s) before answering.
+
+    Mock usage: `npm run mock:b`, then pick a response with the Prism header
+    `Prefer: code=<status>, example=<example-name>`.
+
+    Tags in this file:
+    - `x-contract-change`: ratified v1.1 change (B-1 to B-9).
+    - `x-proposed`: NOT ratified yet; it needs the OK of the four. Mocks include it so the
+      frontend can build against it, but it can change.
+servers:
+  - url: http://localhost:8000
+    description: Python FastAPI backend
+tags:
+  - name: enrollment
+  - name: budget
+  - name: turns
+paths:
+  /api/enrollment:
+    post:
+      tags: [enrollment]
+      operationId: enroll
+      summary: Register the user's voice (three samples, explicit consent)
+      description: |
+        Stores only embeddings, never raw audio (PRIV-1). Requires explicit consent (PRIV-2,
+        Ley 1581 de 2012). Exactly three `audio` parts plus `consent=true`; the service answers
+        `SAMPLES_REQUIRED` / `CONSENT_REQUIRED` itself, so the schema does not enforce them.
+      x-contract-change: B-5
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                audio:
+                  type: string
+                  format: binary
+                  description: >-
+                    Voice sample. The field is sent three times (three `audio` parts); OpenAPI
+                    3.0 cannot express a repeated multipart field and Prism only reads the last one.
+                consent:
+                  type: string
+                  enum: ['true']
+                  description: >-
+                    Explicit consent, sent as the form text `true`. Anything else is a
+                    `CONSENT_REQUIRED` rejection.
+      responses:
+        '201':
+          description: Voice registered.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enrolled]
+                properties:
+                  enrolled: { type: boolean }
+              example: { enrolled: true }
+        '400':
+          description: Enrollment rejected; nothing is stored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                consent-required:
+                  value: { error: { code: CONSENT_REQUIRED, message: Falta el consentimiento explícito } }
+                samples-required:
+                  value: { error: { code: SAMPLES_REQUIRED, message: Se necesitan tres muestras de voz } }
+                invalid-audio:
+                  value: { error: { code: INVALID_AUDIO, message: Una de las muestras no se pudo leer } }
+                inconsistent-samples:
+                  value: { error: { code: INCONSISTENT_SAMPLES, message: Las muestras no parecen de la misma voz } }
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [enrollment]
+      operationId: getEnrollment
+      summary: Whether the user already has a voice print
+      description: |
+        New in v1.1 (B-5). The ratified text does not define the response body; `{ enrolled }`
+        is the shape proposed here, mirroring `POST /enrollment`.
+      x-contract-change: B-5
+      x-proposed: true
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Enrollment status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enrolled]
+                properties:
+                  enrolled: { type: boolean }
+              examples:
+                not-enrolled:
+                  value: { enrolled: false }
+                enrolled:
+                  value: { enrolled: true }
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/budget:
+    post:
+      tags: [budget]
+      operationId: createBudget
+      summary: Start the budget authorization (the frontend redirects to `interactUrl`)
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [debitAmount]
+              properties:
+                debitAmount:
+                  $ref: 'components.yaml#/components/schemas/Amount'
+                interval:
+                  type: string
+                  description: Optional ISO 8601 repeating interval; without it the budget is a total cap.
+                  example: R52/2026-10-16T00:00:00Z/P1W
+      responses:
+        '201':
+          description: Authorization started.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [interactUrl]
+                properties:
+                  interactUrl: { type: string }
+              example:
+                interactUrl: https://auth.interledger-test.dev/interact/example
+        '400':
+          description: Invalid amount (derived from CONV-1 / Contract A `INVALID_AMOUNT`).
+          x-proposed: true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                invalid-amount:
+                  value: { error: { code: INVALID_AMOUNT, message: El monto no es válido } }
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    get:
+      tags: [budget]
+      operationId: getBudget
+      summary: Current budget with spent and remaining
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Budget state (computed by Node).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Budget'
+              example:
+                status: ACTIVE
+                limit:
+                  debitAmount: { value: '20000000', assetCode: COP, assetScale: 2 }
+                  interval: R52/2026-10-16T00:00:00Z/P1W
+                spent: { value: '2015000', assetCode: COP, assetScale: 2 }
+                remaining: { value: '17985000', assetCode: COP, assetScale: 2 }
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/grant-callback:
+    post:
+      tags: [turns]
+      operationId: grantCallback
+      summary: Forward what the wallet returned to `finishUri`
+      description: |
+        The frontend forwards **everything** it received in the `finishUri` query string.
+        When the user rejects in the wallet, `interactRef` and `hash` may be missing; then Python
+        does not call `/continue` and answers `REJECTED` (B-1). What `result` really looks like
+        is pending the E3-rejection experiment. What the turn says on `INVALID_HASH` or
+        `GRANT_NOT_PENDING` from Node is still an open question of the team.
+      x-contract-change: B-1
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                interactRef: { type: string }
+                hash: { type: string }
+                result:
+                  type: string
+                  example: grant_rejected
+      responses:
+        '200':
+          description: The resumed turn.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnResponse'
+              examples:
+                completed:
+                  $ref: '#/components/examples/TurnCompleted'
+                rejected:
+                  $ref: '#/components/examples/TurnRejected'
+                awaiting-authorization:
+                  $ref: '#/components/examples/TurnAwaitingAuthorization'
+                payment-pending:
+                  $ref: '#/components/examples/TurnPaymentPending'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/turns:
+    post:
+      tags: [turns]
+      operationId: createTurn
+      summary: One conversation turn
+      description: |
+        Exactly one of `audio` or `text` (B-3). The choice of recipient comes back as
+        `text` = `alias` (B-4); the PIN is sent as `text` while the state is `AWAITING_PIN`
+        and the response then has `transcript: null` (B-7).
+
+        **Automatic verification turn (B-2, decision D-1b, `x-proposed`).** About 20 s after
+        `PAYMENT_PENDING` the frontend sends one single turn with `kind=verify_pending` and the
+        `sessionId`, with no `audio` and no `text`. The explicit `kind` keeps
+        `AUDIO_OR_TEXT_REQUIRED` valid for every other empty request.
+      x-contract-change: B-3
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TurnRequest'
+      responses:
+        '200':
+          description: The turn result; the frontend acts according to `state`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnResponse'
+              examples:
+                awaiting-confirmation:
+                  $ref: '#/components/examples/TurnAwaitingConfirmation'
+                awaiting-command:
+                  $ref: '#/components/examples/TurnAwaitingCommand'
+                awaiting-pin:
+                  $ref: '#/components/examples/TurnAwaitingPin'
+                awaiting-pin-retry:
+                  $ref: '#/components/examples/TurnAwaitingPinRetry'
+                awaiting-recipient-choice:
+                  $ref: '#/components/examples/TurnAwaitingRecipientChoice'
+                awaiting-authorization:
+                  $ref: '#/components/examples/TurnAwaitingAuthorization'
+                completed:
+                  $ref: '#/components/examples/TurnCompleted'
+                payment-pending:
+                  $ref: '#/components/examples/TurnPaymentPending'
+                rejected:
+                  $ref: '#/components/examples/TurnRejected'
+        '400':
+          description: Invalid input.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                audio-or-text-required:
+                  value: { error: { code: AUDIO_OR_TEXT_REQUIRED, message: "Envía audio o texto, no ambos ni ninguno" } }
+                invalid-audio:
+                  value: { error: { code: INVALID_AUDIO, message: El audio no se pudo leer } }
+                audio-too-long:
+                  value: { error: { code: AUDIO_TOO_LONG, message: El audio supera los 30 segundos } }
+        '404':
+          description: Unknown or lost session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                session-not-found:
+                  value: { error: { code: SESSION_NOT_FOUND, message: La sesión no existe } }
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  parameters:
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      description: One per user action (CONV-3); Python and Node propagate it to their logs.
+      schema: { type: string }
+  responses:
+    UpstreamError:
+      description: Python could not reach Node or Open Payments.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          examples:
+            upstream-error:
+              value: { error: { code: UPSTREAM_ERROR, message: No se pudo contactar al servicio de pagos } }
+    InternalError:
+      description: Unexpected error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          examples:
+            internal-error:
+              value: { error: { code: INTERNAL_ERROR, message: Error interno } }
+  schemas:
+    ErrorCode:
+      type: string
+      description: Decide by `code`, never by `message` (CONV-2).
+      enum:
+        - CONSENT_REQUIRED
+        - SAMPLES_REQUIRED
+        - INVALID_AUDIO
+        - INCONSISTENT_SAMPLES
+        - AUDIO_OR_TEXT_REQUIRED
+        - AUDIO_TOO_LONG
+        - SESSION_NOT_FOUND
+        - INVALID_AMOUNT
+        - UPSTREAM_ERROR
+        - INTERNAL_ERROR
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { $ref: '#/components/schemas/ErrorCode' }
+            message: { type: string }
+    Budget:
+      type: object
+      required: [status, limit, spent, remaining]
+      properties:
+        status:
+          type: string
+          enum: [PENDING, ACTIVE, REJECTED, EXPIRED]
+        limit:
+          type: object
+          required: [debitAmount]
+          properties:
+            debitAmount:
+              $ref: 'components.yaml#/components/schemas/Amount'
+            interval: { type: string }
+        spent:
+          $ref: 'components.yaml#/components/schemas/Amount'
+        remaining:
+          $ref: 'components.yaml#/components/schemas/Amount'
+    TurnState:
+      type: string
+      description: |
+        What the frontend does: `AWAITING_COMMAND` says `say` and records the next command;
+        `AWAITING_CONFIRMATION` says `say` and records the yes/no; `AWAITING_PIN` shows the PIN
+        keypad and sends the PIN as `text`; `AWAITING_RECIPIENT_CHOICE` says `say` and shows
+        `options`; `AWAITING_AUTHORIZATION` says `say` and redirects to `interactUrl`;
+        `PAYMENT_PENDING` (B-2) shows the payment "on its way" and schedules one verification turn;
+        `COMPLETED` says `say` and shows the receipt; `REJECTED` says `say` and goes back to start.
+      enum:
+        - AWAITING_COMMAND
+        - AWAITING_CONFIRMATION
+        - AWAITING_PIN
+        - AWAITING_RECIPIENT_CHOICE
+        - AWAITING_AUTHORIZATION
+        - PAYMENT_PENDING
+        - COMPLETED
+        - REJECTED
+    TurnRequest:
+      description: |
+        One of: a voice command (`audio`), a text command or PIN or recipient alias (`text`), or
+        the single automatic verification turn (`kind=verify_pending` plus `sessionId`).
+      oneOf:
+        - type: object
+          required: [audio]
+          properties:
+            sessionId: { type: string }
+            audio: { type: string, format: binary }
+        - type: object
+          required: [text]
+          properties:
+            sessionId: { type: string }
+            text: { type: string }
+        - type: object
+          required: [sessionId, kind]
+          x-proposed: true
+          properties:
+            sessionId: { type: string }
+            kind:
+              type: string
+              enum: [verify_pending]
+    TurnResponse:
+      type: object
+      required: [sessionId, state, say, transcript, interactUrl, options, payment]
+      properties:
+        sessionId: { type: string }
+        state: { $ref: '#/components/schemas/TurnState' }
+        say:
+          type: string
+          description: Text the browser reads aloud with TTS. Comes from fixed templates, never from an LLM.
+        transcript:
+          type: string
+          nullable: true
+          description: What Whisper understood. `null` in PIN turns (B-7).
+        interactUrl:
+          type: string
+          nullable: true
+          description: Only in `AWAITING_AUTHORIZATION`.
+        options:
+          type: array
+          nullable: true
+          description: Only in `AWAITING_RECIPIENT_CHOICE`. The choice returns as `text` = `alias` (B-4).
+          items:
+            type: object
+            required: [alias, name]
+            properties:
+              alias: { type: string }
+              name: { type: string }
+        payment:
+          type: object
+          nullable: true
+          description: In `COMPLETED`, and in `PAYMENT_PENDING` when a `paymentId` already exists.
+          required: [paymentId, receiver, debitAmount, receiveAmount]
+          properties:
+            paymentId: { type: string }
+            receiver: { type: string }
+            debitAmount:
+              $ref: 'components.yaml#/components/schemas/Amount'
+            receiveAmount:
+              $ref: 'components.yaml#/components/schemas/Amount'
+  examples:
+    TurnAwaitingConfirmation:
+      value:
+        sessionId: s_1
+        state: AWAITING_CONFIRMATION
+        say: ¿Le envío 20 mil a Laura?
+        transcript: envíale veinte mil a mi hija
+        interactUrl: null
+        options: null
+        payment: null
+    TurnAwaitingCommand:
+      value:
+        sessionId: s_1
+        state: AWAITING_COMMAND
+        say: No te entendí. ¿Puedes repetirlo?
+        transcript: envíale a
+        interactUrl: null
+        options: null
+        payment: null
+    TurnAwaitingPin:
+      value:
+        sessionId: s_1
+        state: AWAITING_PIN
+        say: Escribe tu PIN en el teclado.
+        transcript: null
+        interactUrl: null
+        options: null
+        payment: null
+    TurnAwaitingPinRetry:
+      value:
+        sessionId: s_1
+        state: AWAITING_PIN
+        say: El PIN es incorrecto. Te quedan 2 intentos.
+        transcript: null
+        interactUrl: null
+        options: null
+        payment: null
+    TurnAwaitingRecipientChoice:
+      value:
+        sessionId: s_1
+        state: AWAITING_RECIPIENT_CHOICE
+        say: ¿A cuál Laura, a Laura hija o a Laura vecina?
+        transcript: envíale a Laura
+        interactUrl: null
+        options:
+          - { alias: laura-hija, name: Laura hija }
+          - { alias: laura-vecina, name: Laura vecina }
+        payment: null
+    TurnAwaitingAuthorization:
+      value:
+        sessionId: s_1
+        state: AWAITING_AUTHORIZATION
+        say: Te llevo a tu billetera para que apruebes el envío.
+        transcript: sí
+        interactUrl: https://auth.interledger-test.dev/interact/example
+        options: null
+        payment: null
+    TurnCompleted:
+      value:
+        sessionId: s_1
+        state: COMPLETED
+        say: Listo, enviaste 20 mil a Laura. El costo fue de 150 pesos.
+        transcript: sí
+        interactUrl: null
+        options: null
+        payment:
+          paymentId: p_789
+          receiver: https://ilp.interledger-test.dev/laura
+          debitAmount: { value: '2015000', assetCode: COP, assetScale: 2 }
+          receiveAmount: { value: '2000000', assetCode: COP, assetScale: 2 }
+    TurnPaymentPending:
+      value:
+        sessionId: s_1
+        state: PAYMENT_PENDING
+        say: El envío está en camino. No hace falta repetirlo.
+        transcript: sí
+        interactUrl: null
+        options: null
+        payment:
+          paymentId: p_789
+          receiver: https://ilp.interledger-test.dev/laura
+          debitAmount: { value: '2015000', assetCode: COP, assetScale: 2 }
+          receiveAmount: { value: '2000000', assetCode: COP, assetScale: 2 }
+    TurnRejected:
+      value:
+        sessionId: s_1
+        state: REJECTED
+        say: No autorizaste el envío. No se hizo ningún pago.
+        transcript: null
+        interactUrl: null
+        options: null
+        payment: null

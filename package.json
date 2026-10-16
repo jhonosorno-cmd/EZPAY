@@ -1,0 +1,16 @@
+{
+  "name": "ezpay",
+  "private": true,
+  "type": "module",
+  "description": "EZPAY tooling: OpenAPI contracts and Prism mocks",
+  "scripts": {
+    "mock:a": "prism mock -h 127.0.0.1 -p 4000 openapi/contract-a.yaml",
+    "mock:b": "prism mock -h 127.0.0.1 -p 8000 openapi/contract-b.yaml",
+    "lint:openapi": "redocly lint openapi/contract-a.yaml openapi/contract-b.yaml",
+    "test:mocks": "node --test openapi/check.test.mjs"
+  },
+  "devDependencies": {
+    "@redocly/cli": "2.64.1",
+    "@stoplight/prism-cli": "5.16.0"
+  }
+}
