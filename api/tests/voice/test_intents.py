@@ -127,6 +127,25 @@ def test_frases_seccion_d_inyecciones_22_24_25(text):
     assert not pays(i)
 
 
+# --- "o": dos montos o dos destinatarios (escenario de ML 2, add-decision-engine)
+@pytest.mark.parametrize("text", [
+    "Envíale veinte mil o treinta mil a Laura", "Envíale 20 mil o 30 mil a Laura", "Envíale veinte o treinta mil a Laura",
+])
+def test_o_entre_dos_montos_es_ambiguo(text):
+    i = x(text)
+    assert (i.action, i.status, i.amount) == (PAY, AMBIGUOUS, None)
+
+
+def test_o_entre_dos_destinatarios_es_ambiguo():
+    i = x("Envíale veinte mil a Laura o a José")
+    assert (i.status, i.recipient) == (AMBIGUOUS, None)
+
+
+@pytest.mark.parametrize("text", ["Envíale veinte mil o a Laura", "Envíale o veinte mil a Laura", "Envíale veinte mil o plata a Laura"])
+def test_o_mal_formada_nunca_paga(text):
+    assert not pays(x(text))
+
+
 # --- Casos límite: gramática
 @pytest.mark.parametrize("text,value,recipient", [
     ("Envíele veinte mil a mi hija", "2000000", "mi hija"),

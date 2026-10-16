@@ -121,9 +121,13 @@ def test_parametros_invalidos(situation, kwargs):
         say(situation, **kwargs)
 
 
+def test_payment_pending_v1_1():
+    assert say(S.PAYMENT_PENDING) == "Tu envío está en camino. No hace falta repetirlo."
+
+
 def test_situacion_desconocida():
     with pytest.raises(ValueError):
-        say("PAYMENT_PENDING")
+        say("NOT_A_SITUATION")
 
 
 def test_ninguna_plantilla_queda_sin_llenar():
