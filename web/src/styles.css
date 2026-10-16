@@ -140,3 +140,34 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .welcome-text { max-width: 20rem; font-size: 1.2rem; margin: 0 0 18px; }
 .welcome-btn { min-width: 16rem; min-height: 76px; border: 3px solid var(--on-brand); background: transparent; color: var(--on-brand); font-size: 1.3rem; font-weight: 800; letter-spacing: 0.25em; border-radius: 8px; }
 .welcome-btn:hover { background: rgb(255 255 255 / 0.1); }
+
+/* ── Registro de voz ── */
+.enroll-top { display: grid; grid-template-columns: 56px 1fr 56px; align-items: center; padding: 12px 8px; }
+.back { background: none; color: var(--on-brand); font-size: 1.6rem; min-height: 56px; }
+.panel { background: var(--surface); border-radius: var(--radius); padding: 22px 20px; box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 14px; }
+.panel h2 { margin: 0; font-size: 1.4rem; }
+.panel.center { align-items: center; text-align: center; }
+.consent-list { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 8px; }
+.check { display: flex; gap: 14px; align-items: flex-start; font-weight: 700; cursor: pointer; }
+.check input { width: 32px; height: 32px; flex: none; accent-color: var(--indigo); margin: 2px 0 0; }
+.warn { margin: 0; padding: 12px 16px; border-radius: 16px; background: #fff3cd; color: #5c4400; font-weight: 700; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .warn { background: #3d3214; color: #ffe08a; } }
+.steps { display: flex; gap: 8px; justify-content: center; }
+.steps span { width: 48px; height: 8px; border-radius: 99px; background: var(--line); }
+.steps .now { background: var(--violet); } .steps .done { background: var(--ok); }
+.rec { min-height: 96px; font-size: 1.35rem; }
+.rec.recording { background: var(--danger); color: #fff; animation: pulse 1.2s ease-in-out infinite; }
+.review { display: flex; flex-direction: column; gap: 12px; }
+.confirm-q { margin: 0; font-size: 1.25rem; font-weight: 700; }
+.big-ok { font-size: 3rem; margin: 0; }
+
+/* ── Panel de escenarios del mock (solo dev:prism) ── */
+.dev { position: fixed; left: 10px; bottom: 10px; z-index: 50; display: flex; align-items: flex-end; gap: 8px; font-size: 14px; }
+.dev-btn { width: 44px; height: 44px; min-height: 0; border-radius: 50%; background: #111; color: #fff; font-size: 20px; opacity: .85; }
+.dev-chip { background: #111; color: #fff; padding: 6px 10px; border-radius: 99px; order: 2; }
+.dev-menu { position: absolute; left: 0; bottom: 54px; width: 280px; max-height: 70dvh; overflow: auto; background: #111; color: #fff; border-radius: 14px; padding: 10px; }
+.dev-menu button { display: block; width: 100%; text-align: left; background: none; color: #fff; padding: 6px 8px; min-height: 0; border-radius: 8px; font-size: 14px; }
+.dev-menu button:hover { background: #333; }
+.dev-title { margin: 0 0 6px; font-weight: 800; } .dev-group { margin: 10px 0 2px; opacity: .6; font-size: 12px; text-transform: uppercase; }
+.pending-detail { margin: 6px 0 0; font-size: 1.4rem; font-weight: 800; }
+.enroll-top .brand { letter-spacing: 0.15em; font-size: 0.95rem; }

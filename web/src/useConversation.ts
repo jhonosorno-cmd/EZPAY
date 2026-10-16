@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ApiError, messageFor, postGrantCallback, postTurn } from "./api/client"
+import { ApiError, isKnownCode, messageFor, postGrantCallback, postTurn, postVerifyPending } from "./api/client"
 import type { GrantCallback, TurnResponse, TurnState } from "./api/types"
 import { PENDING_CHECK_MS } from "./config"
 import { loadSessionId, saveHandoffReason, saveSessionId } from "./lib/session"
@@ -58,7 +58,7 @@ export function useConversation({ speak }: { speak: (text: string) => Promise<vo
       return
     }
     const msg = messageFor(code)
-    setView((v) => ({ ...v, say: msg, errorCode: msg === messageFor("__") ? code : null }))
+    setView((v) => ({ ...v, say: msg, transcript: null, errorCode: isKnownCode(code) ? null : code }))
     void speak(msg)
   }, [speak])
 
@@ -93,7 +93,7 @@ export function useConversation({ speak }: { speak: (text: string) => Promise<vo
     if (pendingChecked.current) return // la respuesta siguió en PAYMENT_PENDING: no se repite
     pendingTimer.current = setTimeout(() => {
       pendingChecked.current = true
-      void run(() => postTurn({ sessionId: loadSessionId() }))
+      void run(() => postVerifyPending(loadSessionId()))
     }, PENDING_CHECK_MS)
     return () => clearTimeout(pendingTimer.current)
   }, [view, run])

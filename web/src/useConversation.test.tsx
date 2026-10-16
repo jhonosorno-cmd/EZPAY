@@ -32,14 +32,14 @@ describe("useConversation", () => {
     expect(sessionStorage.getItem("ezpay.sessionId")).toBe("s_1")
   })
 
-  it("PAYMENT_PENDING: una sola verificación a los 20 s, sin audio ni texto", async () => {
+  it("PAYMENT_PENDING: una sola verificación a los 20 s con kind=verify_pending (B-2, D-1b)", async () => {
     const f = vi.spyOn(globalThis, "fetch").mockImplementation(async () => turn("PAYMENT_PENDING"))
     const { result } = renderHook(() => useConversation({ speak: async () => {} }))
     await act(async () => { await result.current.sendText("sí") })
     await act(async () => { await vi.advanceTimersByTimeAsync(20_000) })
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000) })
     expect(f).toHaveBeenCalledTimes(2)
-    expect(sentBodies(f)[1]).toEqual({ sessionId: "s_1" })
+    expect(sentBodies(f)[1]).toEqual({ sessionId: "s_1", kind: "verify_pending" })
   })
 
   it("PAYMENT_PENDING: si la usuaria habla antes, se cancela la verificación", async () => {
@@ -68,5 +68,16 @@ describe("useConversation", () => {
     const { result } = renderHook(() => useConversation({ speak: async () => {} }))
     await act(async () => { await result.current.sendText("hola") })
     expect(result.current.view.state).toBe("AWAITING_COMMAND")
+  })
+
+  it("ante un error no queda la transcripción del turno anterior", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async () => turn("PAYMENT_PENDING", { transcript: "sí" }))
+      .mockResolvedValue(new Response(JSON.stringify({ error: { code: "INVALID_AUDIO", message: "" } }), { status: 400 }))
+    const { result } = renderHook(() => useConversation({ speak: async () => {} }))
+    await act(async () => { await result.current.sendText("sí") })
+    await act(async () => { await result.current.sendText("x") })
+    expect(result.current.view.transcript).toBeNull()
+    expect(result.current.view.say).toBe("No pude escuchar bien. ¿Lo intentas de nuevo?")
   })
 })

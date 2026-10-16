@@ -8,7 +8,10 @@
     "mock": "tsx mock/server.ts",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:api": "npx -y openapi-typescript@7.13.0 ../openapi/contract-b.yaml -o src/api/contract-b.gen.ts",
+    "mock:prism": "cd .. && npm run mock:b",
+    "dev:prism": "VITE_MOCK=prism vite"
   },
   "dependencies": {
     "@fontsource/raleway": "^5.3.0",

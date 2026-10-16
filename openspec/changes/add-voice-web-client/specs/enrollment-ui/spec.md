@@ -27,8 +27,20 @@ La web app SHALL guiar la grabación de tres muestras, mostrando y leyendo antes
 - **WHEN** una muestra dura menos de 3 s
 - **THEN** la web app pide repetir esa muestra antes de enviar
 
+### Requirement: Grabar, revisar y confirmar cada muestra
+Cada muestra SHALL grabarse con un botón "Iniciar grabación" que pasa a "Detener grabación" (tocar para empezar y tocar para parar, sin mantener presionado) y que apaga el micrófono al detener. Después de grabar, la web app SHALL ofrecer "Reproducir grabación", "Repetir grabación" (con confirmación) y "Usar grabación". La reproducción usa una URL temporal en memoria que se libera al usar, repetir o salir (PRIV-1). Origen: casos de uso preliminares de ML 2.
+
+#### Scenario: Repetir con confirmación
+- **WHEN** la usuaria toca "Repetir grabación"
+- **THEN** la web app pregunta si quiere grabar esa frase otra vez
+- **AND** solo al confirmar descarta la grabación y vuelve a la misma frase
+
+#### Scenario: Usar la tercera muestra
+- **WHEN** la usuaria toca "Usar grabación" en la tercera frase
+- **THEN** sale el único `POST /api/enrollment`
+
 ### Requirement: Resultado del registro
-La web app SHALL decidir por `error.code` (CONV-2) y ante cualquier error permitir repetir el registro. Los códigos distintos de `CONSENT_REQUIRED` son un **cambio de contrato propuesto** (ML 2, C-3).
+La web app SHALL decidir por `error.code` (CONV-2) y ante cualquier error permitir repetir el registro. Los códigos son los de B-5 (ratificado).
 
 #### Scenario: Registro exitoso
 - **WHEN** Python responde `201 { enrolled: true }`
@@ -52,7 +64,7 @@ La web app SHALL decidir por `error.code` (CONV-2) y ante cualquier error permit
 - **AND** no queda nada registrado
 
 ### Requirement: Saber si hay alguien registrado
-Si existe `GET /api/enrollment` (**cambio de contrato propuesto**, ML 2 C-3), la pantalla de inicio SHALL mostrar "Registrar mi voz" solo cuando `enrolled` es `false`. Sin esa ruta, la opción de registrar se muestra siempre.
+Con `GET /api/enrollment` (B-5, ratificado; la forma `{ enrolled }` es `x-proposed`), la pantalla de inicio SHALL mostrar "Registrar mi voz" solo cuando `enrolled` es `false`. Sin esa ruta, la opción de registrar se muestra siempre.
 
 #### Scenario: Usuaria ya registrada
 - **WHEN** `GET /api/enrollment` responde `{ enrolled: true }`

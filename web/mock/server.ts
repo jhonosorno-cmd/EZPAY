@@ -8,6 +8,8 @@
 //   - Monto mayor a lo que queda del presupuesto → confirmación de exceso → wallet.
 //   - "lento" en el comando → PAYMENT_PENDING; el turno de verificación lo completa.
 //   - "error audio" → 400 INVALID_AUDIO · "error raro" → 400 código desconocido.
+//   - Registro de voz: GET/POST /api/enrollment (consent=true y tres audios).
+// Para recorrer los ejemplos oficiales del contrato, usar el mock de Prism: `npm run mock:prism`.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { randomUUID } from "node:crypto"
 
@@ -33,6 +35,7 @@ const CONTACTS = [
 ]
 const sessions = new Map<string, Session>()
 let budget: { limit: bigint; spent: bigint } | null = null
+let enrolled = false
 let lastSession: Session | null = null // el callback de la wallet no trae sessionId
 
 const amt = (v: bigint): Amount => ({ value: v.toString(), ...ASSET })
@@ -109,13 +112,13 @@ function completed(s: Session, debit: bigint) {
   })
 }
 
-function handleTurn(s: Session, text: string | null, hasAudio: boolean) {
+function handleTurn(s: Session, text: string | null, hasAudio: boolean, kind: string | null) {
   // Por voz, el mock simula lo que diría Whisper según el estado.
   const said = text ?? (hasAudio ? (s.state === "AWAITING_CONFIRMATION" ? "sí" : "envíale veinte mil a laura hija") : null)
   const viaText = text !== null
   if (said === null) {
-    // Turno de verificación de PAYMENT_PENDING (cambio propuesto B-2, contradicción F-1)
-    if (s.state === "PAYMENT_PENDING" && s.pending) {
+    // Turno automático de PAYMENT_PENDING: kind=verify_pending (B-2, D-1b). Cualquier otro vacío es un 400.
+    if (kind === "verify_pending" && s.state === "PAYMENT_PENDING" && s.pending) {
       const r = BigInt(s.pending.receive.value)
       return completed(s, r + fee(r))
     }
@@ -184,8 +187,10 @@ createServer(async (req, res) => {
       return send(res, 201, { interactUrl: walletUrl() })
     }
     if (req.method === "GET" && url.pathname === "/api/budget") {
-      if (!budget) return send(res, 200, { status: "NONE", limit: null, spent: null, remaining: null })
-      return send(res, 200, { status: "ACTIVE", limit: amt(budget.limit), spent: amt(budget.spent), remaining: amt(budget.limit - budget.spent) })
+      // [PREGUNTA ABIERTA a Pagos] El contrato no define la respuesta sin presupuesto. El mock responde 404;
+      // el frontend trata cualquier error o estado distinto de ACTIVE como "sin presupuesto".
+      if (!budget) throw { status: 404, code: "BUDGET_NOT_FOUND" }
+      return send(res, 200, { status: "ACTIVE", limit: { debitAmount: amt(budget.limit) }, spent: amt(budget.spent), remaining: amt(budget.limit - budget.spent) })
     }
     if (req.method === "POST" && url.pathname === "/api/grant-callback") {
       const cb = JSON.parse((await readBody(req)).toString())
@@ -214,12 +219,20 @@ createServer(async (req, res) => {
       const s = sid ? sessions.get(sid)! : newSession()
       lastSession = s
       const text = form.get("text") as string | null
-      const out = handleTurn(s, text, form.has("audio"))
+      const out = handleTurn(s, text, form.has("audio"), form.get("kind") as string | null)
       console.log(`[mock] ${rid} /turns -> ${out.state}`)
       return send(res, 200, out)
     }
+    if (req.method === "GET" && url.pathname === "/api/enrollment") return send(res, 200, { enrolled })
+    if (req.method === "POST" && url.pathname === "/api/enrollment") {
+      const form = await new Response(await readBody(req), { headers: { "content-type": req.headers["content-type"] ?? "" } }).formData()
+      if (form.get("consent") !== "true") throw { status: 400, code: "CONSENT_REQUIRED" }
+      if (form.getAll("audio").length !== 3) throw { status: 400, code: "SAMPLES_REQUIRED" }
+      enrolled = true // el mock no guarda las muestras: solo recuerda que hubo registro
+      return send(res, 201, { enrolled: true })
+    }
     if (url.pathname === "/mock/reset") {
-      sessions.clear(); budget = null; lastSession = null
+      sessions.clear(); budget = null; lastSession = null; enrolled = false
       return send(res, 200, { ok: true })
     }
     send(res, 404, { error: { code: "NOT_FOUND", message: url.pathname } })
