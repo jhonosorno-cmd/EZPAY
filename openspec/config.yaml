@@ -7,8 +7,8 @@ context: |
   Regla del evento: todo el código se escribe durante el evento. Los specs y diseños previos
   no llevan código.
   Fuente de verdad de las interfaces entre servicios: "docs/contratos-http-v1.md", anexo de
-  "docs/spec-general.md". Los cambios propuestos y aún no ratificados están en
-  "docs/contratos-cambios-propuestos-v1.1.md". Los contratos son decisión del equipo: un spec
+  "docs/spec-general.md". Sus cambios de v1.1, ratificados el 16 oct, están en
+  "docs/contratos-cambios-propuestos-v1.1.md" y ganan si chocan con v1. Los contratos son decisión del equipo: un spec
   nunca los contradice; si hace falta cambiarlos, se marca como cambio de contrato y requiere el
   OK de los cuatro.
   Requisitos comunes a todos los roles: capabilities payment-safety, voice-privacy y
