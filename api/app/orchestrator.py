@@ -1,4 +1,4 @@
-"""Orquestador del turno (spec turn-orchestration): intención (Voz) → agenda →
+﻿"""Orquestador del turno (spec turn-orchestration): intención (Voz) → agenda →
 verificación de voz → quote con el cliente de Node → motor de decisión →
 transición de TurnState → llamadas a Node.
 
@@ -275,11 +275,15 @@ class Orchestrator:
 
     # ------------------------------------------------------------- fase de pago
     def _confirmation_turn(self, session, audio_bytes, text, request_id) -> dict:
-        """D4: la voz del "sí" no se verifica; el context conserva la del comando."""
-        reply = classify_reply(text)
+        """D4: la voz del "sí" se transcribe (para clasificar la respuesta) pero NO se
+        vuelve a verificar; el context conserva la verificación del comando."""
+        reply_text = text
+        if audio_bytes is not None:
+            reply_text = self.transcriber.transcribe(audio_bytes) if self.transcriber else None
+        reply = classify_reply(reply_text)
         context = build_context(
             phase="CONFIRMATION",
-            input_text=text,
+            input_text=reply_text,
             intent=session.intent,
             resolution=self._stored_resolution(session),
             voice_status=session.voice["status"] if session.voice else "NOT_AVAILABLE",
@@ -297,9 +301,9 @@ class Orchestrator:
         decision = engine_decide(context_obj)
         situation = engine_say_situation(decision, context_obj)
         if decision.decision is DecisionType.PAY:
-            return self._pay(session, transcript=text or None, request_id=request_id)
+            return self._pay(session, transcript=reply_text, request_id=request_id)
         if decision.decision is DecisionType.REQUIRE_AUTH:
-            return self._require_one_off(session, context["quote"]["debitAmount"], text or None, request_id)
+            return self._require_one_off(session, context["quote"]["debitAmount"], reply_text, request_id)
         if decision.decision is DecisionType.ASK_CONFIRM:
             # repregunta una vez (SEG-2): el contador vive en la sesión
             session.state = TurnState.AWAITING_CONFIRMATION
@@ -307,13 +311,13 @@ class Orchestrator:
             return turns.response(
                 session.id, TurnState.AWAITING_CONFIRMATION,
                 self._say(situation, contact=session.contact, quote=session.quote),
-                transcript=text or None,
+                transcript=reply_text,
             )
         # REJECT: USER_DECLINED o REPLY_UNCLEAR_REJECTED
         session.state = TurnState.REJECTED
         self._clear_pending(session)
         self._cancel_one_off_silent(session, request_id)
-        return turns.response(session.id, TurnState.REJECTED, self._say(situation), transcript=text or None)
+        return turns.response(session.id, TurnState.REJECTED, self._say(situation), transcript=reply_text)
 
     def _require_one_off(self, session, debit_amount, transcript, request_id) -> dict:
         """El grant puntual del exceso: R1/<instante de la solicitud en UTC>/P1W."""
@@ -430,7 +434,7 @@ class Orchestrator:
         if outcome["status"] == "FAILED":
             return self._payment_rejected(session)
         if outcome["status"] == "COMPLETED":
-            return self._payment_completed(session, outcome, request_id=request_id)
+            return self._payment_completed(session, outcome, transcript=transcript, request_id=request_id)
         final = self._node_call(
             "wait_for_payment",
             lambda: self.payments.wait_for_payment(outcome["paymentId"], request_id=request_id),
@@ -448,10 +452,10 @@ class Orchestrator:
                 payment=self._payment_object(session, created["paymentId"], created["debitAmount"]),
             )
         if final["status"] == "COMPLETED":
-            return self._payment_completed(session, created, request_id=request_id)
+            return self._payment_completed(session, created, transcript=transcript, request_id=request_id)
         return self._payment_rejected(session)
 
-    def _payment_completed(self, session, created, *, request_id=None) -> dict:
+    def _payment_completed(self, session, created, *, transcript=None, request_id=None) -> dict:
         session.state = TurnState.COMPLETED
         wallet = session.contact["walletAddress"] if session.contact else None
         if wallet:
@@ -464,6 +468,7 @@ class Orchestrator:
             session.id, TurnState.COMPLETED,
             voice_say(S.COMPLETED, amount=self._voice_amount(receive), name=session.contact["name"],
                       debit=self._voice_amount(debit) if debit else None),
+            transcript=transcript,
             payment=self._payment_object(session, created["paymentId"], debit),
         )
 

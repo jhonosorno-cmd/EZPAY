@@ -233,6 +233,21 @@ class PaymentFlowTest(unittest.TestCase):
         self.assertEqual(r["state"], "REJECTED")
 
     # ------------------------------------------------------- confirmación
+    def test_spoken_confirmation_is_transcribed_but_never_re_verified(self):
+        """Spec D4: el "sí" por voz se transcribe; NO se vuelve a verificar la voz."""
+        session_id = self.reach_confirmation()
+        verifier = self.app.state.orchestrator.verifier
+        self.app.state.orchestrator.transcriber.text = "sí"
+        r = self.client.post(
+            "/api/turns",
+            files=[("audio", ("sí.wav", b"RIFF", "audio/wav"))],
+            data={"sessionId": session_id},
+        ).json()
+        contract.validate_response("POST", "/api/turns", 200, r)
+        self.assertEqual(r["state"], "COMPLETED")
+        self.assertEqual(r["transcript"], "sí")
+        self.assertEqual(len(verifier.verify_calls), 1, "solo la voz del comando se verificó")
+
     def test_unclear_reply_asks_again_once_then_rejects(self):
         """Spec «Respuesta que no es un sí claro»: repregunta una vez; dos veces -> REJECTED."""
         session_id = self.reach_confirmation()
