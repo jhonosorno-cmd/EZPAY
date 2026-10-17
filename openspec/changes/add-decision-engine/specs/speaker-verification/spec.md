@@ -89,6 +89,9 @@ ir acompañado de una recalibración del umbral de verificación y del corte de 
 - **WHEN** se procesa audio
 - **THEN** no es válido sin recalibrar el umbral de verificación y el corte de consistencia (H3)
 
+Nota (X-6, 17 oct): comparó el VAD de SpeechBrain y no mejoró la separación: se mantiene
+`trim_silence` **[DECIDIDO 2026-10-17]**.
+
 ### Requirement: Decisión por umbral configurable
 
 La similitud SHALL medirse como coseno entre el embedding del comando y la huella del usuario, y

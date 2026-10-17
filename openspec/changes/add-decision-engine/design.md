@@ -49,7 +49,7 @@ Material de referencia de las capabilities `decision-engine`, `pin-validation`, 
 | Umbral 0.45 (confirmado en vivo) | D6; experimentos ML 2, 15 y 17 oct (17 oct: 0 FA/0 FR a 0.45; impostor máx. 0.405, genuino mín. 0.508; a 0.55 hubo 3 FR); recalibración en H3 |
 | Tope de 30 s: no se recorta, falla cerrado (`NOT_AVAILABLE`) | B-3 ratificado (`AUDIO_TOO_LONG`; `speech-transcription` lee la duración de la cabecera); `docs/voz/contrato-voz.md` §4 (nota de RAM); experimentos ML 2, 15 oct |
 | Duración mínima de verificación `minVerifySeconds` = 2,0 s | **[DECIDIDO 2026-10-17]**; experimentos ML 2, 17 oct, 3 personas (1,0 s ⇒ 11 FR, 1,5 s ⇒ 4, 2,0–3,0 s ⇒ 0 FA/0 FR) |
-| Recorte de silencios fijado (`trim_silence`: ventanas de 320 muestras = 20 ms, margen 0,25 s) | Experimentos ML 2, 15 oct (calibración del 0.45); cambiarlos exige recalibrar |
+| Recorte de silencios fijado (`trim_silence`: ventanas de 320 muestras = 20 ms, margen 0,25 s) | Experimentos ML 2, 15 oct (calibración del 0.45); cambiarlos exige recalibrar; X-6 (17 oct): el VAD de SpeechBrain no mejoró — se mantiene |
 | Comparación en el borde (`score >= umbral` ⇒ `VERIFIED`) | Decisión de Daniel (2026-10-16) |
 | Carga del modelo al arrancar; fallo de carga ⇒ `NOT_AVAILABLE` | Decisión de Daniel (2026-10-16); PRIV-4 (aviso en log sin datos biométricos) |
 | Una verificación a la vez (candado) | Experimentos ML 2, 15 oct (4 × 30 s en paralelo: 1,85 GB) |
@@ -464,3 +464,4 @@ alimenta el `say` del orquestador. El motor MUST NOT validar el PIN ni acceder a
 | --- | --- |
 | Recalibración del umbral de verificación y del corte de consistencia (ambos 0.45) | H3 (sala de demostración) |
 | Repetir el experimento con más personas (muestra actual: 3; margen del umbral pequeño, +0.104) | Siguiente batería |
+| Actualizar el guion de demo de `docs/spec-general.md` §3 con la frase nueva ("Envíale veinte mil pesos a mi hija") | **[PARA EL EQUIPO]** — documento del equipo, necesita el OK de los cuatro |
