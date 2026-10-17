@@ -115,6 +115,19 @@ En fase `COMMAND` el motor SHALL evaluar en orden las reglas 1, 2, 2b, 3, 4, 5, 
 - **THEN** devuelve `REASK` con `reason: INTENT_UNKNOWN`
 - **AND** no paga
 
+#### Scenario: Saludo sin comando ("Hola")
+
+- **GIVEN** fase `COMMAND` con la salida real de Voz para "Hola": `intent.action == "UNKNOWN"`, `amount: null`, `recipient: null` y `status: "OK"`
+- **WHEN** el motor decide
+- **THEN** la regla 2 aplica por `action == "UNKNOWN"` aunque el `status` sea `OK` y devuelve `REASK` con `reason: INTENT_UNKNOWN`
+
+#### Scenario: "Cancela" con status OK
+
+- **GIVEN** fase `COMMAND` con la salida real de Voz para "Cancela": `intent.action == "CANCEL"` y `status: "OK"`
+- **WHEN** el motor decide
+- **THEN** la regla 1 aplica sin mirar el `status` y devuelve `REJECT` con `reason: CANCELLED_BY_USER`
+- **AND** no se ejecuta ningún pago
+
 #### Scenario: Monto con demasiados decimales
 
 - **GIVEN** fase `COMMAND` con `intent.amountError == "TOO_MANY_DECIMALS"` (p. ej. "envíale 10.50")
@@ -137,15 +150,21 @@ En fase `COMMAND` el motor SHALL evaluar en orden las reglas 1, 2, 2b, 3, 4, 5, 
 
 #### Scenario: Sin monto
 
-- **GIVEN** fase `COMMAND` con `intent.action == "PAY"`, `intent.status == "OK"` e `intent.amount == null` ("envíale a Laura")
+- **GIVEN** fase `COMMAND` con `intent.action == "PAY"`, `intent.status == "UNCLEAR"` e `intent.amount == null` ("envíale a Laura"; Voz lo manda con `status: "UNCLEAR"`, 2026-10-16)
 - **WHEN** el motor decide
 - **THEN** devuelve `REASK` con `reason: AMOUNT_MISSING`
 
 #### Scenario: Sin destinatario
 
-- **GIVEN** fase `COMMAND` con `intent.action == "PAY"`, `intent.status == "OK"`, monto presente e `intent.recipient == null` ("envíale 20.000")
+- **GIVEN** fase `COMMAND` con `intent.action == "PAY"`, `intent.status == "UNCLEAR"`, monto presente e `intent.recipient == null` ("envíale 20.000")
 - **WHEN** el motor decide
 - **THEN** devuelve `REASK` con `reason: RECIPIENT_MISSING`
+
+#### Scenario: Campos faltantes aunque el status llegue como OK (robustez)
+
+- **GIVEN** fase `COMMAND` con `intent.action == "PAY"`, `intent.status == "OK"` e `intent.amount == null` o `intent.recipient == null` (contrario a la salida real de Voz)
+- **WHEN** el motor decide
+- **THEN** devuelve igualmente `REASK` con `reason: AMOUNT_MISSING` o `RECIPIENT_MISSING`: la regla 2 se basa en los campos del `context`, no en el `status`
 
 #### Scenario: Intención poco clara
 
@@ -421,6 +440,31 @@ La única regla que emite `PAY` SHALL exigir la fase `CONFIRMATION` y `reply == 
 - **WHEN** el motor decide en fase `COMMAND`
 - **THEN** devuelve `REASK` con `reason: INTENT_UNKNOWN` (`action == "UNKNOWN"`), con las mismas reglas que para cualquier otro comando
 - **AND** ninguna frase del comando puede producir `PAY`
+
+### Requirement: Un contexto inválido falla cerrado
+
+Un `quote` nulo solo es válido cuando `hasBudgetGrant == false`. El motor MUST rechazar con un error
+interno de contexto inválido (sin datos del request en el mensaje) un `context` que lo contradiga,
+y MUST NOT devolver `PAY`, `ASK_CONFIRM` ni `ASK_PIN` en ese caso. El orquestador trata ese error
+como fallo interno y no paga. [DECIDIDO 2026-10-16, hallazgo de la implementación local.]
+
+#### Scenario: Confirmación sin quote
+
+- **GIVEN** fase `CONFIRMATION` con `reply == "YES"` y `quote == null`
+- **WHEN** el motor decide
+- **THEN** lanza el error de contexto inválido y no devuelve `PAY`
+
+#### Scenario: Comando con grant y sin quote
+
+- **GIVEN** fase `COMMAND` con `hasBudgetGrant == true` y `quote == null`
+- **WHEN** el motor llega a evaluar las reglas posteriores a la 5
+- **THEN** lanza el error de contexto inválido y no devuelve `ASK_CONFIRM`
+
+#### Scenario: Contexto mal formado
+
+- **GIVEN** un `context` mal formado: una clave faltante, un valor de enum desconocido, un `Amount.value` que no son dígitos ASCII, un `resolution.kind == "UNCLEAR"` o claves desconocidas
+- **WHEN** el motor decide
+- **THEN** lanza el error de contexto inválido (mensaje fijo, sin datos del request) y no produce decisión
 
 ### Requirement: El mapeo a TurnState no es del motor
 El motor SHALL devolver solo el `{decision, reason}`. El orquestador MUST mapear `decision` a `TurnState`, ejecutar las llamadas a Node y usar el `reason` para elegir la plantilla de `say`; el texto nunca lo genera el motor ni el LLM. El mapeo está en `design.md`.

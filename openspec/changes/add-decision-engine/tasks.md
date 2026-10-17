@@ -7,11 +7,11 @@
 
 ## 2. H1 (viernes 14:00)
 
-- [ ] 2.1 Pruebas de los escenarios de `decision-engine` y `pin-validation`, escritas antes del código
-- [ ] 2.2 Implementar `decide(context)` en `api/` como función pura
-- [ ] 2.3 Implementar `verify_pin`, `reset_pin_lock` y el script que genera el hash con sal
-- [ ] 2.4 `api/.env.example` con los nombres de las variables del PIN, sin valores
+- [x] 2.1 Pruebas de los escenarios de `decision-engine` y `pin-validation`, escritas antes del código
+- [x] 2.2 Implementar `decide(context)` en `api/` como función pura
+- [x] 2.3 Implementar `verify_pin`, `reset_pin_lock` y el script que genera el hash con sal
+- [x] 2.4 `api/.env.example` con los nombres de las variables del PIN, sin valores
 
 ## 3. Validación
 
-- [ ] 3.1 `openspec validate add-decision-engine --strict`
+- [x] 3.1 `openspec validate add-decision-engine --strict`

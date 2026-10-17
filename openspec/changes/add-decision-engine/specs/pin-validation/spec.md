@@ -37,7 +37,8 @@ alta. Un script genera el hash con sal y lo imprime para copiarlo a `.env`.
 
 ### Requirement: Formato y comparación en tiempo constante
 
-El componente SHALL aceptar PINes de 4 a 6 dígitos; un formato inválido se rechaza sin comparar.
+El componente SHALL aceptar PINes de 4 a 6 dígitos ASCII (0-9); un formato inválido, incluidos los
+dígitos Unicode de otros alfabetos, se rechaza sin comparar.
 La comparación SHALL hacerse en tiempo constante (`hmac.compare_digest` sobre los derivados) para
 que el tiempo de respuesta no revele información del PIN.
 
@@ -47,6 +48,12 @@ que el tiempo de respuesta no revele información del PIN.
 - **WHEN** se pasa a `verify_pin`
 - **THEN** se rechaza con `result: "INVALID_FORMAT"`, sin invocar el KDF ni comparar hashes
 - **AND** no altera los contadores de intentos **[DECIDIDO]** (2026-10-16): es entrada inválida, no intento
+
+#### Scenario: Dígitos de otros alfabetos
+
+- **GIVEN** un valor con dígitos Unicode no ASCII, como "٢٣٤٥" o "²³⁴⁵"
+- **WHEN** se pasa a `verify_pin`
+- **THEN** se rechaza con `result: "INVALID_FORMAT"` sin invocar el KDF
 
 #### Scenario: Comparación en tiempo constante
 
@@ -70,6 +77,18 @@ El componente de PIN SHALL llevar los contadores: al tercer fallo de la sesión 
 - **WHEN** la usuaria envía otro PIN incorrecto
 - **THEN** el componente reporta `result: "WRONG"`, `sessionFailures: 3`, `remaining: 0`, `locked: false`
 - **AND** el orquestador responde `REJECTED` y no paga (SEG-6)
+
+#### Scenario: Sesión agotada no vuelve a validar
+
+- **GIVEN** una sesión con `sessionFailures >= 3`
+- **WHEN** llega el PIN correcto con el mismo `session_id`
+- **THEN** el componente reporta `result: "WRONG"` y `remaining: 0`, sin invocar el KDF ni mover contadores (defensa en profundidad)
+
+#### Scenario: Intentos concurrentes
+
+- **GIVEN** varias peticiones de PIN incorrecto al mismo tiempo
+- **WHEN** el componente las procesa
+- **THEN** los contadores no pierden fallos: exactamente 5 fallos globales activan el bloqueo y nunca se devuelve un `OK` espurio
 
 #### Scenario: Bloqueo global
 

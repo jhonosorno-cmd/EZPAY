@@ -221,7 +221,7 @@ En fase `COMMAND` el motor SHALL decidir con esta tabla ordenada:
 | # | Condición | Decision | Reason | Origen |
 | --- | --- | --- | --- | --- |
 | 1 | `intent.action == "CANCEL"` | `REJECT` | `CANCELLED_BY_USER` | catálogo `say` (`CANCELLED`) |
-| 2 | `intent.status != "OK"`, o `intent.action == "UNKNOWN"`, o `intent.amountError != null`, o `intent.amount == null` | `REASK` | derivado por prioridad (ver notas) | SEG-3, SEG-4 |
+| 2 | `intent.status != "OK"`, o `intent.action == "UNKNOWN"`, o `intent.amountError != null`, o `intent.amount == null`, o `intent.recipient == null` | `REASK` | derivado por prioridad (ver notas) | SEG-3, SEG-4 |
 | 2b | cortes de confianza activos y puntaje por debajo: primero `minIntentConfidence` vs `intentConfidence`, luego `minTranscriptConfidence` vs `transcriptConfidence` | `REASK` | `INTENT_LOW_CONFIDENCE` o `TRANSCRIPT_LOW_CONFIDENCE` | decisiones.md 3b; decisión con ML 1 (2026-10-16) |
 | 3 | `resolution.kind == "NOT_FOUND"` | `REASK` | `RECIPIENT_NOT_FOUND` | SEG-4 |
 | 4 | `resolution.kind == "CHOICE"` | `ASK_RECIPIENT` | `RECIPIENT_AMBIGUOUS` | SEG-4 |
@@ -265,7 +265,11 @@ evaluando 7, 8 y 9 con normalidad. Efecto: (a) en la regla 9 la decisión sigue 
 prioridad de evaluación dentro de la regla: `intent.action == "UNKNOWN"` → `INTENT_UNKNOWN`;
 `intent.amountError != null` → `AMOUNT_ERROR`; `intent.status == "AMBIGUOUS"` → `INTENT_AMBIGUOUS`;
 `intent.amount == null` → `AMOUNT_MISSING`; `intent.recipient == null` → `RECIPIENT_MISSING`;
-cualquier otro `intent.status != "OK"` → `INTENT_UNCLEAR`. La decisión es `REASK` en todos los casos.
+cualquier otro `intent.status != "OK"` → `INTENT_UNCLEAR`. La decisión es `REASK` en todos los
+casos, y la prioridad NO depende del `status` cuando este es distinto de `OK`. Aclarado con ML 1
+(2026-10-16; lo confirma su código `voz/h1-parser`): falta de monto o de destinatario llega con
+`status: "UNCLEAR"`, `AMBIGUOUS` queda solo para varios montos o varios destinatarios, y
+`UNKNOWN`/`CANCEL` pueden llegar con `status: "OK"`; el motor se guía por los campos del `context`.
 - Regla 2b: los cortes viven en `config` (`minIntentConfidence`, `minTranscriptConfidence`,
 `number | null`; `null` = desactivado, por defecto en H1). La regla evalúa primero la confianza de
 la intención y luego la de la transcripción; con ambos cortes activos, un solo puntaje bajo basta
