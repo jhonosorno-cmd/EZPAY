@@ -68,6 +68,7 @@ class Orchestrator:
         payments=None,
         agenda_path=None,
         pin_validator=None,
+        store=None,
     ) -> None:
         self.transcriber = transcriber
         self.verifier = verifier
@@ -75,6 +76,7 @@ class Orchestrator:
         self.payments = payments
         self.agenda = load_agenda(agenda_path or AGENDA_PATH)
         self.pin_validator = pin_validator or default_validator
+        self.store = store
         self.budget_grant_id: str | None = None
         self.budget_status: str | None = None
         self.history: set[str] = set()  # wallets con pago COMPLETED (D9, R7)
@@ -92,7 +94,7 @@ class Orchestrator:
         except UpstreamUnavailable:
             raise TurnError(500, "INTERNAL_ERROR", "Error interno") from None
         except PaymentsError as exc:
-            self._log_node_defect(exc, request_id)
+            self.log_node_defect(exc, request_id)
             raise TurnError(500, "INTERNAL_ERROR", "Error interno") from None
         except InvalidContextError:
             raise TurnError(500, "INTERNAL_ERROR", "Error interno") from None
@@ -173,6 +175,64 @@ class Orchestrator:
 
     def _has_active_budget(self) -> bool:
         return self.budget_grant_id is not None and self.budget_status == "ACTIVE"
+
+    def create_budget_grant(self, debit_value: str, interval: str | None, request_id: str | None) -> dict:
+        """Crea el grant de presupuesto con el cliente de Node; el grantId queda en la app."""
+        grant = self._node_call(
+            "create_grant",
+            lambda: self.payments.create_grant(
+                DEMO_USER_ID,
+                _wallet_address(),
+                f"{FRONTEND_ORIGIN}/grant-callback",
+                debit_value,
+                interval=interval,
+                request_id=request_id,
+            ),
+            request_id,
+        )
+        self.budget_grant_id = grant["grantId"]
+        self.budget_status = "PENDING"
+        return grant
+
+    # -------------------------------------------------------------- callback
+    def handle_callback(self, body: dict, request_id: str | None) -> dict:
+        """POST /grant-callback: reenvía interactRef/hash verbatim a /continue (B-1).
+
+        Sin interactRef o sin hash NO se llama a /continue: REJECTED. Los errores
+        de Node (INVALID_HASH, GRANT_NOT_PENDING, GRANT_REJECTED) son fail-closed:
+        REJECTED sin pagar (D-n 4 del reporte). La sesión pendiente se busca por
+        grantId cuando el frontend lo reenvía; si no, por estado único pendiente.
+        """
+        interact_ref = body.get("interactRef")
+        hash_value = body.get("hash")
+        session = self.store.take_pending_authorization(body.get("grantId"))
+        if session is None:
+            return turns.response("unknown", TurnState.REJECTED, self._say(S.AUTH_REJECTED.value))
+        kind = session.pending_authorization
+        session.pending_authorization = None
+        if not isinstance(interact_ref, str) or not isinstance(hash_value, str):
+            session.state = TurnState.REJECTED
+            self._clear_pending(session)
+            return turns.response(session.id, TurnState.REJECTED, self._say(S.AUTH_REJECTED.value))
+        try:
+            self._node_call(
+                "continue_grant",
+                lambda: self.payments.continue_grant(session.grant_id, interact_ref, hash_value, request_id=request_id),
+                request_id,
+            )
+        except UpstreamUnavailable:
+            raise
+        except PaymentsError as exc:
+            self.log_node_defect(exc, request_id)
+            session.state = TurnState.REJECTED
+            self._clear_pending(session)
+            return turns.response(session.id, TurnState.REJECTED, self._say(S.AUTH_REJECTED.value))
+        if kind == "budget":
+            self.budget_status = "ACTIVE"
+            session.state = TurnState.AWAITING_COMMAND
+            return turns.response(session.id, TurnState.AWAITING_COMMAND, self._say(S.AUTH_APPROVED.value))
+        # kind == "one_off": el callback retoma la intención pendiente y paga (R6)
+        raise NotImplementedError("R6")
 
     def _pending_of(self, session) -> dict | None:
         if not session.pending_payment:
@@ -301,7 +361,7 @@ class Orchestrator:
     def _voice_amount(amount_dict: dict) -> VoiceAmount:
         return VoiceAmount(amount_dict["value"], amount_dict["assetCode"], amount_dict["assetScale"])
 
-    def _log_node_defect(self, exc: PaymentsError, request_id: str | None) -> None:
+    def log_node_defect(self, exc: PaymentsError, request_id: str | None) -> None:
         """INVALID_REQUEST de Node es defecto propio: se registra solo código y operación."""
         _logger.info(json.dumps({
             "event": "orchestrator_error",

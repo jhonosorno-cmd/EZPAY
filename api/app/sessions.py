@@ -58,9 +58,17 @@ class SessionStore:
     def set_pending_authorization(self, session: Session) -> None:
         session.pending_authorization = True
 
-    def take_pending_authorization(self) -> Session | None:
-        for session in self._sessions.values():
-            if session.pending_authorization and not session.expired():
-                session.pending_authorization = False
-                return session
-        return None
+    def take_pending_authorization(self, grant_id: str | None = None) -> Session | None:
+        """La sesión pendiente de autorización en la wallet.
+
+        El callback del frontend no lleva identificadores del grant: si el cuerpo
+        trae un `grantId` reenviado se busca por él; si no, solo hay UNA sesión
+        pendiente posible (demo de una usuaria). Sin pendientes o con varias
+        ambiguas devuelve None y el turno responde con sessionId 'unknown' (D-2).
+        """
+        pending = [s for s in self._sessions.values() if s.pending_authorization and not s.expired()]
+        if grant_id:
+            matches = [s for s in pending if s.grant_id == grant_id]
+            if matches:
+                return matches[0]
+        return pending[0] if len(pending) == 1 else None
