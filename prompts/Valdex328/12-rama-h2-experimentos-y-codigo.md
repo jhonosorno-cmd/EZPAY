@@ -80,6 +80,18 @@ decidamos entonces el detector como está y actualicemos para que la frase de la
 Reparte el trabajo entre los agentes y dime qué sigue para completar H2.
 ````
 
+## Prompt 11 (revisar si falta algo de H2)
+
+````text
+H2 ya quedó en la rama? falta algo de las specs o del código?
+````
+
+## Prompt 12 (cerrar tareas, proposal y persistir el contador del PIN)
+
+````text
+Marca 4.4 y 4.5 en tasks.md, agrega api/speaker/ al proposal, y manda al Builder a persistir el contador global del PIN junto a la huella (fuera de git), con pruebas primero; luego súbelo todo a H2.
+````
+
 ---
 
 Registro: 2026-10-16 · transcripción literal de la sesión "Hachathon Interledger EZPAY". Las instrucciones que la IA redactó para los agentes Constructor de Specs y Builder están en `10-instrucciones-a-agentes.md`.

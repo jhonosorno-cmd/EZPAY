@@ -25,7 +25,7 @@ no tienen contra qué verificarse.
   - `voice-enrollment`: huella a partir de 3 muestras con un solo consentimiento (huella y
     transcripción externa), errores de B-5 en orden fijo, huella persistida fuera de git,
     re-enrolamiento atómico y `GET /enrollment`.
-- Código en `api/`: el motor (`api/decision/`), el PIN (`api/pin/`), sus scripts (`api/scripts/`), `api/.env.example` y las pruebas de los escenarios (`api/tests/decision/`, `api/tests/pin/`), escritas antes del código.
+- Código en `api/`: el motor (`api/decision/`), el PIN (`api/pin/`), la verificación de hablante y el enrolamiento (`api/speaker/`), sus scripts (`api/scripts/`, incluido `delete_voiceprint.py`), `api/.env.example` y las pruebas de los escenarios (`api/tests/decision/`, `api/tests/pin/`, `api/tests/speaker/`), escritas antes del código.
 
 ## Capabilities
 

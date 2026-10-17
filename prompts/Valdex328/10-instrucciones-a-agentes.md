@@ -451,6 +451,18 @@ Revisión de la sesión padre: muy buen trabajo, pero hay que revertir la desvia
 Corre de nuevo tests/speaker (normal y con el modelo real), tests/decision y tests/pin. Sin commits. Respóndeme con los números.
 ````
 
+### B10 — Persistir el contador global del PIN
+
+````text
+Orden de la sesión padre (Daniel, ML 2): persistir el contador GLOBAL de fallos del PIN (tarea 1.4 de add-decision-engine; en H1 vivía en memoria). Repo EZPAY, rama `H2` (no cambies de rama), solo toca `api/pin/`, `api/scripts/reset_pin_lock.py`, `api/tests/pin/` y `api/README-ml2.md`. Pruebas primero; sin commits.
+- Persistencia "junto a la huella": directorio configurable `EZPAY_PIN_DATA_DIR`, por defecto `api/.data/pin/` (crea un `.gitignore` con `*` dentro, igual que `api/.data/speaker/`). Guarda SOLO `{"globalFailures": int, "locked": bool}` en un JSON; NUNCA el PIN, ni el hash, ni contadores de sesión (los de sesión siguen en memoria). Escritura atómica (temporal + `os.replace`), bajo el mismo `threading.Lock` del validador.
+- Al iniciar `PinValidator` se carga el estado; cada fallo, cada PIN correcto (reinicia el global) y cada bloqueo se guardan antes de responder. Un reinicio del backend conserva el bloqueo y el conteo.
+- Archivo ilegible o corrupto ⇒ falla cerrado: se trata como `locked: true`, deja un aviso en el log sin datos sensibles; `reset_pin_lock.py` lo repara (escribe `{0, false}`).
+- `scripts/reset_pin_lock.py` ahora reinicia el estado PERSISTIDO (ya no depende del proceso del backend); actualiza su docstring.
+- Estado inyectable para pruebas (directorio temporal). Pruebas: reinicio conserva 4 fallos y el 5.º bloquea; reinicio conserva el bloqueo; PIN correcto persiste el reinicio a 0; archivo corrupto ⇒ bloqueado; reset por script ⇒ desbloqueado; el JSON nunca contiene el PIN ni el hash (busca el PIN y el hash en el contenido); concurrencia sigue contando exacto.
+- Corre `PYTHONPATH=. python -m pytest tests -q` desde `api/` (pytest ya está instalado en el .venv de Pruebas ML2) y repórtame los números. Actualiza README-ml2 (variable `EZPAY_PIN_DATA_DIR` y que el bloqueo sobrevive al reinicio).
+````
+
 Las instrucciones al Constructor de Specs de esta etapa (plan de experimentos, resultados del 17 oct, X-6 y frase de la demo con la divisa) actualizaron los artifacts que luego se copiaron a `openspec/changes/add-decision-engine/`; sus decisiones están en `prompts/Valdex328/12-rama-h2-experimentos-y-codigo.md` y en `design.md`.
 
 ---
