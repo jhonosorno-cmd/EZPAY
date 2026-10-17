@@ -86,7 +86,7 @@ _Pendiente._
 | Ruta | Qué hay |
 |---|---|
 | `web/`, `api/`, `payments/` | Código, escrito durante el evento |
-| `docs/` | Spec general, roles, contratos y cambios propuestos (v1.1), diseño de voz |
+| `docs/` | Spec general, roles, contratos y cambios (v1.1 y v1.2), diseño de voz |
 | `openspec/` | Specs por capability (`openspec validate <cambio> --strict`) |
 | `prompts/` | Texto real de los prompts del evento, por persona |
 | `AI_USAGE.md` | Uso de IA, incluido el trabajo previo al evento |

@@ -451,3 +451,22 @@ Cada request SHALL producir una línea de log JSON con `requestId`, método, rut
 #### Scenario: Servicio sano
 - **WHEN** llega `GET /v1/health` con el servicio arrancado
 - **THEN** responde `200 { "ok": true }` sin llamadas a Open Payments
+
+### Requirement: Petición mal formada
+El servicio SHALL responder `400 INVALID_REQUEST` (Contrato v1.2, AB-1) ante un JSON inválido, un campo obligatorio faltante o inválido, o una ruta desconocida. Un `interval` no soportado sigue siendo `400 INVALID_AMOUNT`. Ninguno de estos casos responde `500 INTERNAL_ERROR`.
+
+#### Scenario: JSON inválido
+- **WHEN** llega `POST /v1/grants` con un cuerpo que no es JSON válido
+- **THEN** responde `400 INVALID_REQUEST`
+
+#### Scenario: Campo obligatorio faltante
+- **WHEN** llega `POST /v1/grants` sin `userId`, `walletAddress`, `finishUri` o `limit.debitAmount`
+- **THEN** responde `400 INVALID_REQUEST`
+
+#### Scenario: Ruta desconocida
+- **WHEN** llega una petición a una ruta que no existe
+- **THEN** responde `400 INVALID_REQUEST`
+
+#### Scenario: Intervalo no soportado
+- **WHEN** llega `POST /v1/grants` con un `interval` que el servicio no soporta
+- **THEN** responde `400 INVALID_AMOUNT`

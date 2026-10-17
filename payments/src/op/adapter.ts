@@ -103,9 +103,10 @@ export class SdkOpenPayments implements OpenPaymentsPort {
     return { value: t.value, manageUrl: t.manage, expiresAt: new Date(Date.now() + (t.expires_in ?? 600) * 1000) }
   }
 
-  /** [VERIFICAR] se revoca el token vía la manage URL; la cancelación GNAP completa usa el continue URI. */
-  async cancelGrant(a: { manageUrl: string; accessToken: string }) {
-    await this.call(() => this.c.token.revoke({ url: a.manageUrl, accessToken: a.accessToken }))
+  /** GNAP grant.cancel: DELETE sobre la continue URI con el continue token. Verificado en la
+   *  Test Wallet (payments/experiments/cancel-grant.md): deja el access token inusable. */
+  async cancelGrant(a: { continueUri: string; continueToken: string }) {
+    await this.call(() => this.c.grant.cancel({ url: a.continueUri, accessToken: a.continueToken }))
   }
 
   async rotateToken(a: { manageUrl: string; accessToken: string }) {

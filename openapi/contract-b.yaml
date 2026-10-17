@@ -9,12 +9,14 @@ info:
     Conventions: every error is `{ error: { code, message } }` and clients decide by `code`
     (CONV-2). The frontend sends an optional `X-Request-Id` per user action (CONV-3).
     The frontend never polls: Python waits for the payment (~10 s) before answering.
+    Any endpoint can answer `400 INVALID_REQUEST` for a malformed request: invalid JSON, a missing
+    or invalid required field, or an unknown route (v1.2, AB-1).
 
     Mock usage: `npm run mock:b`, then pick a response with the Prism header
     `Prefer: code=<status>, example=<example-name>`.
 
     Tags in this file:
-    - `x-contract-change`: ratified v1.1 change (B-1 to B-9).
+    - `x-contract-change`: ratified v1.1 change (B-1 to B-9) or v1.2 change (AB-1).
     - `x-proposed`: NOT ratified yet; it needs the OK of the four. Mocks include it so the
       frontend can build against it, but it can change.
 servers:
@@ -83,6 +85,8 @@ paths:
                   value: { error: { code: INVALID_AUDIO, message: Una de las muestras no se pudo leer } }
                 inconsistent-samples:
                   value: { error: { code: INCONSISTENT_SAMPLES, message: Las muestras no parecen de la misma voz } }
+                invalid-request:
+                  value: { error: { code: INVALID_REQUEST, message: La petición no es válida } }
         '500':
           $ref: '#/components/responses/InternalError'
     get:
@@ -156,6 +160,8 @@ paths:
               examples:
                 invalid-amount:
                   value: { error: { code: INVALID_AMOUNT, message: El monto no es válido } }
+                invalid-request:
+                  value: { error: { code: INVALID_REQUEST, message: La petición no es válida } }
         '502':
           $ref: '#/components/responses/UpstreamError'
         '500':
@@ -226,6 +232,8 @@ paths:
                   $ref: '#/components/examples/TurnAwaitingAuthorization'
                 payment-pending:
                   $ref: '#/components/examples/TurnPaymentPending'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '500':
           $ref: '#/components/responses/InternalError'
   /api/turns:
@@ -290,6 +298,8 @@ paths:
                   value: { error: { code: INVALID_AUDIO, message: El audio no se pudo leer } }
                 audio-too-long:
                   value: { error: { code: AUDIO_TOO_LONG, message: El audio supera los 30 segundos } }
+                invalid-request:
+                  value: { error: { code: INVALID_REQUEST, message: La petición no es válida } }
         '404':
           description: Unknown or lost session.
           content:
@@ -407,6 +417,16 @@ components:
           examples:
             upstream-error:
               value: { error: { code: UPSTREAM_ERROR, message: No se pudo contactar al servicio de pagos } }
+    InvalidRequest:
+      description: Malformed request (invalid JSON, missing or invalid required fields, unknown route).
+      x-contract-change: AB-1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          examples:
+            invalid-request:
+              value: { error: { code: INVALID_REQUEST, message: La petición no es válida } }
     InternalError:
       description: Unexpected error.
       content:
@@ -419,6 +439,7 @@ components:
   schemas:
     ErrorCode:
       type: string
+      x-contract-change: AB-1
       description: Decide by `code`, never by `message` (CONV-2).
       enum:
         - CONSENT_REQUIRED
@@ -430,6 +451,7 @@ components:
         - SESSION_NOT_FOUND
         - INVALID_AMOUNT
         - UPSTREAM_ERROR
+        - INVALID_REQUEST
         - INTERNAL_ERROR
         - INVALID_REQUEST
         - INVALID_WALLET

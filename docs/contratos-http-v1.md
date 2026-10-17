@@ -1,7 +1,8 @@
 # Contratos HTTP v1
 
 > **Vigente con los cambios de v1.1** ([`contratos-cambios-propuestos-v1.1.md`](./contratos-cambios-propuestos-v1.1.md)),
-> ratificados el 16 de octubre. Si este documento y v1.1 chocan, gana v1.1.
+> ratificados el 16 de octubre, y de v1.2 ([`contratos-cambios-v1.2.md`](./contratos-cambios-v1.2.md)),
+> ratificados el 17 de octubre. Si este documento y v1.1 chocan, gana v1.1; v1.2 gana sobre ambos.
 
 Anexo del [Spec general](../docs/spec-general.md). Los contratos son **decisión del
 equipo**: los acordaron los cuatro, y cualquier cambio necesita el OK de los cuatro.

@@ -15,6 +15,7 @@
     "exp:weekly": "tsx --env-file=.env experiments/weekly-interval-and-token.ts",
     "exp:reject": "tsx --env-file=.env experiments/reject-redirect.ts",
     "exp:cancel": "tsx --env-file=.env experiments/cancel-grant.ts",
+    "exp:one-off": "tsx --env-file=.env experiments/one-off-grant-real.ts",
     "smoke": "tsx experiments/smoke-happy-path.ts"
   },
   "dependencies": {
