@@ -1,6 +1,6 @@
 # Diseño — add-decision-engine
 
-Material de referencia de las capabilities `decision-engine` y `pin-validation`: trazabilidad, tablas y tipos que los requisitos citan, y puntos abiertos. Los requisitos y escenarios normativos están en `specs/`.
+Material de referencia de las capabilities `decision-engine`, `pin-validation`, `speaker-verification`, `voice-enrollment`: trazabilidad, tablas y tipos que los requisitos citan, y puntos abiertos. Los requisitos y escenarios normativos están en `specs/`.
 
 ## Trazabilidad
 
@@ -39,6 +39,46 @@ Material de referencia de las capabilities `decision-engine` y `pin-validation`:
 | Entrada por campo `text` hasta H3 | Decisión #2 del 16 oct (`docs/decisiones.md`); B-8 |
 | Interfaz `verify_pin` / `reset_pin_lock` | D5; decidida 2026-10-16 con ML 2, ML 1 y Pagos **[DECIDIDO]** |
 | El motor recibe el resultado y no valida el PIN | D1, D5; `turn-orchestration` "Motor como función pura" |
+
+### speaker-verification
+| Requisito | Origen |
+| --- | --- |
+| Funciones Python en el backend, sin servicio aparte | Decisión de ML 2 (2026-10-16); `docs/decisiones.md` 16 oct |
+| `verify(pcm, user) -> {status, score}` = `context.voice` del motor | `decision-engine` "El contexto de entrada"; `turn-orchestration` "Usuario no enrolado" |
+| Solo se verifica la voz del comando (D4) | `turn-orchestration` "Solo se verifica la voz del comando"; experimentos ML 2, 15 oct (clips < ~3 s se solapan) |
+| Umbral 0.45 provisional, sesgo contra falsos aceptados | D6; experimentos ML 2, 15 oct; recalibración en H3 |
+| Tope de 30 s: no se recorta, falla cerrado (`NOT_AVAILABLE`) | B-3 ratificado (`AUDIO_TOO_LONG`; `speech-transcription` lee la duración de la cabecera); `docs/voz/contrato-voz.md` §4 (nota de RAM); experimentos ML 2, 15 oct |
+| Duración mínima de verificación `minVerifySeconds` | Experimentos ML 2, 15 oct (a 1,5 s se solapan, a 3 s se separan); **[VERIFICAR con X-2]**; riesgo para la demo **[PARA DECIDIR con Voz y Frontend]** |
+| Recorte de silencios fijado (`trim_silence`: ventanas de 320 muestras = 20 ms, margen 0,25 s) | Experimentos ML 2, 15 oct (calibración del 0.45); cambiarlos exige recalibrar |
+| Comparación en el borde (`score >= umbral` ⇒ `VERIFIED`) | Decisión de Daniel (2026-10-16) |
+| Carga del modelo al arrancar; fallo de carga ⇒ `NOT_AVAILABLE` | Decisión de Daniel (2026-10-16); PRIV-4 (aviso en log sin datos biométricos) |
+| Una verificación a la vez (candado) | Experimentos ML 2, 15 oct (4 × 30 s en paralelo: 1,85 GB) |
+| `score: null` con `NOT_AVAILABLE` | Decisión de Daniel (2026-10-16); `decision-engine` "El contexto de entrada" |
+| Entrada PCM float32 16 kHz mono | `docs/voz/contrato-voz.md` §4 |
+| Usuario sin huella, audio corto, > 30 s, error interno o modelo sin cargar ⇒ `NOT_AVAILABLE` con `score: null` | `turn-orchestration` "Usuario no enrolado"; SEG-6; D3 (falla cerrada) |
+| Privacidad: solo embeddings, sin audio ni puntajes en logs | PRIV-1, PRIV-4; `voice-privacy` |
+| Borrado de la huella por script (retira también el consentimiento externo — opción B, 2026-10-16) | PRIV-3; `voice-privacy`; `voice-enrollment` |
+| Anti-spoofing fuera de alcance | X-4 (riesgo conocido documentado) |
+
+### voice-enrollment
+| Requisito | Origen |
+| --- | --- |
+| `POST /enrollment` (multipart `audio` ×3, `consent=true` → `201 {enrolled: true}` · `400 CONSENT_REQUIRED`) | `docs/contratos-http-v1.md` (Contrato B) |
+| Errores `SAMPLES_REQUIRED`, `INVALID_AUDIO`, `INCONSISTENT_SAMPLES` y `GET /enrollment` | B-5 (`docs/contratos-cambios-propuestos-v1.1.md`); D8 |
+| UI: consentimiento, 3 muestras de 3–15 s, revisar/repetir cada muestra, resultado por `error.code` | `openspec/changes/add-voice-web-client/specs/enrollment-ui/spec.md`; PR #2 de Frontend |
+| Consentimiento antes de procesar nada | PRIV-2 (Ley 1581 de 2012); `voice-privacy` |
+| Corte de consistencia entre pares (por defecto **0.45**, configurable) | Experimentos ML 2, 15 oct (misma persona ≥ 0.689, otra persona 0.16–0.23); recalibración en H3 |
+| Re-enrolar sobrescribe (201), atómico | B-5; decisión de Daniel (2026-10-16) |
+| Consentimiento único: huella + audio de las órdenes a proveedor externo (`consentExterno`) | Decisión de Daniel (2026-10-16, opción B); `speech-transcription` "Audio a un proveedor externo solo con consentimiento"; textos: `verificacion-ml2/textos-enrolamiento.md` |
+| Persistencia de la huella (archivo local fuera de git: `*.npy`, `*.db`; `userId` fijo del MVP) | Decisión de Daniel (2026-10-16); PRIV-1 |
+| Orden de los errores | Decisión de Daniel (2026-10-16); PRIV-2 (nunca se procesa audio sin consentimiento) |
+| Duración de la muestra medida tras recortar silencios | Experimentos ML 2, 15 oct; mismo criterio que `speaker-verification` |
+| Muestra > 15 s ⇒ `INVALID_AUDIO` | B-3 (nunca llegaría > 30 s); `enrollment-ui` (3–15 s) |
+| Specs de H2 dentro del cambio `add-decision-engine` | `docs/decisiones.md` «Pendientes» (ML 2 crea `openspec/changes/add-decision-engine/`) |
+| Solo embeddings, sin audio ni logs con datos biométricos | PRIV-1, PRIV-4; `voice-privacy` |
+| Huella = promedio de los 3 embeddings (L2-normalizado) | Experimentos ML 2, 15 oct; **[PROPUESTA: promedio vs máximo, X-3]** |
+| Audio PCM float32 16 kHz mono | `docs/voz/contrato-voz.md` §4 |
+| Flujo completo de registro | `docs/flujos/flujo-con-prs.md`, diagramas 2 y 6 |
 
 ## Detalle de `decision-engine`
 
@@ -417,3 +457,13 @@ alimenta el `say` del orquestador. El motor MUST NOT validar el PIN ni acceder a
 | Punto | Dueño / estado |
 | --- | --- |
 | Alcance H2: persistir el contador global de fallos del PIN (en H1 vive en la memoria del proceso; un reinicio del backend lo reinicia y el bloqueo por 5 fallos solo vale mientras el proceso vive) | **[DIFERIDO A H2]** |
+
+### speaker-verification y voice-enrollment (H2)
+| Punto | Dueño / estado |
+| --- | --- |
+| Huella: promedio vs máximo por muestra | **[PROPUESTA]** — decidir con X-3 |
+| Valor de `minVerifySeconds` (provisional 3 s) | **[VERIFICAR con X-2]** |
+| Riesgo para la demo: la frase "Envíale veinte mil a mi hija" puede durar menos de 3 s ⇒ pediría PIN siempre | **[PARA DECIDIR con Voz y Frontend]** — medir la frase (X-2); si hace falta, frases de ~3 s o bajar `minVerifySeconds` con evidencia |
+| Carga del modelo sin internet (pesos en caché local) | **[VERIFICAR]** |
+| Presupuesto de latencia (< 1 s en CPU) | **[VERIFICAR]** |
+| Recalibración del umbral de verificación y del corte de consistencia (ambos por defecto 0.45) | H3 (sala de demostración) |

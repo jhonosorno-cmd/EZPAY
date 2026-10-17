@@ -3,7 +3,7 @@
 - Fecha: 2026-10-16
 - Redactadas por: Claude Code (Claude Opus 5.5 y Claude Sonnet 5.5, sesión de planeación y orquestación en Traycer), a pedido de Valdex328 (Daniel, rol Verificación y calidad, ML 2)
 - Destinatarios: dos agentes de OpenCode con el modelo `zai-org/GLM-5.3-Flash` (proveedor featherless): **Constructor de Specs** (escribe los artifacts de los specs) y **Builder** (escribe el código y las pruebas)
-- Nota: estos textos no los escribió Daniel de palabra; son las instrucciones literales que la IA redactó a partir de sus prompts (`03-specs-h1-motor-y-pin.md`, `04-mocks-openspec-y-siguiente-paso.md`, `05-integracion-y-pr.md` y `07-flujos-y-conflictos.md`) y que los agentes recibieron. Se omiten las respuestas de los agentes.
+- Nota: estos textos no los escribió Daniel de palabra; son las instrucciones literales que la IA redactó a partir de sus prompts (`03-specs-h1-motor-y-pin.md`, `04-mocks-openspec-y-siguiente-paso.md`, `05-integracion-y-pr.md`, `07-flujos-y-conflictos.md` y `11-specs-h2-verificacion-y-enrolamiento.md`) y que los agentes recibieron. Se omiten las respuestas de los agentes.
 
 ---
 
@@ -228,6 +228,48 @@ Dos specs en formato OpenSpec (Purpose, trazabilidad, `## ADDED Requirements`, r
 - Latencia medida ~0,4 s por verificación en CPU; ~0,4 GB RAM en reposo.
 - Las rutas HTTP (`/api/enrollment`) son del esqueleto de Pagos; ML 2 entrega las funciones. Fuera de alcance: anti-spoofing (X-4, una grabación podría pasar: documentarlo como riesgo conocido).
 Respóndeme con las rutas, el resumen y los puntos [PROPUESTA]/[VERIFICAR] que queden.
+````
+
+### A10 — Revisión de los specs de H2 (audio largo, audio corto y latencia)
+
+````text
+Revisión de la sesión padre de los specs de H2: buen trabajo. Tres correcciones en `speaker-verification` (y donde aplique en `voice-enrollment`/story). Lee antes de editar; no toques el repo.
+
+1. **Audio de más de 30 s: no se recorta, falla cerrado.** El contrato ya rechaza un comando de más de 30 s antes de decodificarlo (`AUDIO_TOO_LONG`, B-3 ratificado; `speech-transcription` lee la duración de la cabecera). Cambia el requisito "Entrada de audio normalizada" y el escenario "Audio largo se recorta antes de procesar": `verify`/`embed` MUST NOT procesar más de 30 s; si reciben más (no debería pasar por B-3), devuelven `NOT_AVAILABLE` sin cargar el audio en el modelo (defensa en profundidad), no recortan. Escenario: "Audio de más de 30 s" ⇒ `NOT_AVAILABLE`, el motor pide PIN.
+2. **Audio corto ⇒ `NOT_AVAILABLE`, con duración mínima configurable.** En "Clip demasiado corto": si la voz útil (tras recortar silencios) dura menos que `minVerifySeconds` (configurable; valor provisional **3 s** [VERIFICAR con X-2]: a 1,5 s los puntajes se solapan, a 3 s se separan — experimentos ML 2, 15 oct), `verify` devuelve `NOT_AVAILABLE` (no hay audio suficiente para decidir; NO `BELOW_THRESHOLD`, que significaría "otra persona"). El motor pide PIN. Agrega en el story y en "Puntos abiertos" un **riesgo para la demo**: la frase "Envíale veinte mil a mi hija" puede durar menos de 3 s ⇒ pediría PIN siempre; hay que medirla (X-2) y, si hace falta, que Voz/Frontend sugieran frases de ~3 s o bajar `minVerifySeconds` con evidencia [PARA DECIDIR con Voz y Frontend].
+3. El escenario "Costo medido en CPU" no es un comportamiento verificable por prueba: conviértelo en una nota (o un escenario de presupuesto: "una verificación de un comando de ≤ 30 s responde en < 1 s en CPU" [VERIFICAR]).
+Además, revisa que cada texto de requisito (antes del primer escenario) tenga ≤ 500 caracteres y SHALL/MUST (OpenSpec `--strict` lo exige). Respóndeme con lo que cambió.
+````
+
+### A11 — `voice-enrollment`: los 7 huecos decididos
+
+````text
+Instrucción de Daniel (ML 2): actualiza el artifact `voice-enrollment` (y `speaker-verification` y el story donde toque). Lee antes de editar; no toques el repo. Todo lo siguiente es [DECIDIDO 2026-10-16] salvo lo indicado.
+
+1. **Consentimiento único (opción B).** El mismo `consent=true` cubre la huella y el envío del audio de las órdenes a un servicio externo de transcripción (`speech-transcription` «Audio a un proveedor externo solo con consentimiento»; textos en `verificacion-ml2/textos-enrolamiento.md` del repo). Requisito: un enrolamiento válido registra también el consentimiento del proveedor externo (lo consulta Voz como `consentExterno`), y borrar la huella lo retira. El Contrato B no cambia.
+2. **Persistencia de la huella.** Se guarda en un archivo local fuera de git (los patrones `*.npy` y `*.db` ya están en `.gitignore`), un solo usuario (`userId` fijo del MVP), y se carga al arrancar el backend: un reinicio no borra el registro. Nunca audio, solo el embedding. Escenario: "Reinicio del backend conserva la huella".
+3. **Corte de consistencia por defecto = 0.45** (el mismo umbral de la verificación; misma persona ≥ 0.689, otra persona 0.16–0.23 — experimentos ML 2, 15 oct), configurable y se recalibra en H3.
+4. **Orden de los errores:** `CONSENT_REQUIRED` → `SAMPLES_REQUIRED` → `INVALID_AUDIO` → `INCONSISTENT_SAMPLES` (el primero que aplique; nunca se procesa audio sin consentimiento). Escenario con varios errores a la vez.
+5. **Muestra de más de 15 s ⇒ `400 INVALID_AUDIO`** (por B-3 nunca llegaría más de 30 s).
+6. **La duración se mide después de recortar silencios**, igual que en la verificación (3 s de voz útil como mínimo). Escenario: "Muestra de 4 s con 2 s de silencio ⇒ INVALID_AUDIO".
+7. **Re-enrolamiento atómico:** si el nuevo registro falla cualquier validación, se conserva la huella anterior; solo un registro válido la reemplaza. Escenario.
+8. **Ubicación:** ambos specs de H2 van en el cambio `add-decision-engine` (como dice `docs/decisiones.md` «Pendientes»), no en `add-speaker-verification`: corrige la nota "Copiar a…" de los dos artifacts y el story.
+9. **La huella (promedio vs máximo por muestra) sigue [PROPUESTA]**: se decide tras el experimento X-3; no la cierres.
+Mantén cada texto de requisito ≤ 500 caracteres con SHALL/MUST. Respóndeme con lo que cambió y los puntos que quedan abiertos.
+````
+
+### A12 — `speaker-verification`: los 6 huecos decididos
+
+````text
+Instrucción de Daniel (ML 2): actualiza el artifact `speaker-verification` (y el story si hace falta). Lee antes de editar; no toques el repo. Todo lo siguiente es [DECIDIDO 2026-10-16]:
+
+1. **Corrige la afirmación de seguridad.** En el Purpose, en "Fallo cerrado" y en "Fuera de alcance: anti-spoofing" quita que "el PIN es la barrera principal". Lo correcto: si una grabación del usuario pasa como `VERIFIED`, con destinatario conocido y dentro del presupuesto, el motor NO pide PIN; contra una grabación protegen el tope del grant de presupuesto (SEG-1/SEG-5), el "sí" hablado (SEG-2) y `highAmountThreshold` (SEG-6), cuyo valor decide el experimento X-4. El PIN protege cuando la voz no se verifica. Ajusta el escenario "Riesgo documentado" en ese sentido.
+2. **Recorte de silencios fijado:** el mismo detector de energía con que se calibró el 0.45 (`trim_silence` del script de calibración de ML 2: ventanas de 320 muestras = 20 ms a 16 kHz y 0,25 s de margen a cada lado; experimentos ML 2, 15 oct). Enrolamiento y verificación usan exactamente esa función y esos parámetros; cambiarlos exige recalibrar.
+3. **Comparación en el borde:** `score >= umbral` ⇒ `VERIFIED`; `score < umbral` ⇒ `BELOW_THRESHOLD`. Escenario con `score == 0.45`.
+4. **Carga del modelo al arrancar:** el modelo se carga una vez al iniciar el backend (no en la primera petición). Si la carga falla, toda verificación devuelve `NOT_AVAILABLE` y el arranque deja un aviso en el log sin datos biométricos. Escenarios: "Primer comando sin espera de carga" y "Modelo que no carga ⇒ NOT_AVAILABLE".
+5. **`score = null` con `NOT_AVAILABLE`** (no hay voz que comparar: usuario sin huella, audio corto, más de 30 s, error). Con `VERIFIED`/`BELOW_THRESHOLD` el `score` es el coseno. Refléjalo en el tipo y en los escenarios.
+6. **Una verificación a la vez:** el acceso al modelo se serializa con un candado (medido: 4 peticiones de 30 s en paralelo usaron 1,85 GB de RAM — experimentos ML 2, 15 oct). Escenario de dos peticiones simultáneas: ambas responden y la RAM no crece como con cuatro en paralelo.
+Mantén cada texto de requisito ≤ 500 caracteres con SHALL/MUST. Respóndeme con lo que cambió.
 ````
 
 ---

@@ -15,3 +15,12 @@
 ## 3. Validación
 
 - [x] 3.1 `openspec validate add-decision-engine --strict`
+
+## 4. H2 (verificación de hablante y enrolamiento)
+
+- [ ] 4.1 Experimento X-3: huella como promedio o como máximo por muestra
+- [ ] 4.2 Experimento X-2: medir `minVerifySeconds` y la duración de la frase de la demo
+- [ ] 4.3 Verificar que el modelo carga sin internet y que una verificación responde en menos de 1 s
+- [ ] 4.4 Pruebas de los escenarios de `speaker-verification` y `voice-enrollment`, escritas antes del código
+- [ ] 4.5 Implementar `embed`, `verify`, enrolamiento, persistencia y borrado de la huella en `api/`
+- [ ] 4.6 H3: recalibrar el umbral y el corte de consistencia con el micrófono de solapa
