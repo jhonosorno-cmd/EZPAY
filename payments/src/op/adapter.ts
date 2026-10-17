@@ -173,7 +173,7 @@ export class SdkOpenPayments implements OpenPaymentsPort {
 
   async getGrantSpent(a: { sender: WalletInfo; accessToken: string }) {
     const r = await this.call(() =>
-      this.c.outgoingPayment.getGrantSpentAmounts({ url: `${a.sender.resourceServer.replace(/\/$/, '')}/outgoing-payments`, accessToken: a.accessToken }),
+      this.c.outgoingPayment.getGrantSpentAmounts({ url: a.sender.resourceServer.replace(/\/$/, ''), accessToken: a.accessToken }),
     )
     return r.spentDebitAmount ? amt(r.spentDebitAmount) : null
   }
