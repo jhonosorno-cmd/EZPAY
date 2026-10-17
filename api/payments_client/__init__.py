@@ -12,6 +12,7 @@ from .client import (
     PaymentsError,
     UpstreamUnavailable,
 )
+from .intervals import one_off_interval
 
 __all__ = [
     "PaymentPending",
@@ -19,4 +20,5 @@ __all__ = [
     "PaymentsClientConfigError",
     "PaymentsError",
     "UpstreamUnavailable",
+    "one_off_interval",
 ]
