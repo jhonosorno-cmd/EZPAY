@@ -111,15 +111,16 @@ Continuar con éxito un grant nuevo MUST NOT vencer a los demás grants `ACTIVE`
 
 ### Requirement: Cancelación de un grant
 `DELETE /v1/grants/{grantId}` SHALL responder `204` y dejar el grant `EXPIRED` localmente.
-**Cambio de contrato propuesto (requiere el OK de los cuatro).** Node cancela el grant en Open
-Payments con `grant.cancel` sobre la `manage` URL guardada. Un `grantId` desconocido responde
-`404 GRANT_NOT_FOUND`; si Open Payments falla, responde `502 UPSTREAM_ERROR` y el grant igual
-queda `EXPIRED` localmente, sin usarse de nuevo. Cancelar un grant ya cancelado responde `204`.
+Cambio A-1, ratificado. Node cancela el grant en Open Payments con `grant.cancel` (no con
+`token.revoke`). Un `grantId` desconocido responde `404 GRANT_NOT_FOUND`; si Open Payments falla,
+responde `502 UPSTREAM_ERROR` y el grant igual queda `EXPIRED` localmente, sin usarse de nuevo.
+Cancelar un grant ya cancelado responde `204`.
 
 #### Scenario: Cancelación exitosa
-- **GIVEN** un grant ACTIVE con su `manage` URL guardada
+- **GIVEN** un grant ACTIVE con su continue URI y su continue token guardados
 - **WHEN** llega `DELETE /v1/grants/{grantId}`
-- **THEN** responde `204`, el grant queda `EXPIRED` y Node llamó a `grant.cancel`
+- **THEN** responde `204`, el grant queda `EXPIRED` y Node llamó a `grant.cancel` (DELETE sobre la
+  continue URI con el continue token), que anula el grant entero
 
 #### Scenario: Cancelar dos veces
 - **GIVEN** un grant ya `EXPIRED` por cancelación
@@ -184,6 +185,12 @@ Si el grant tiene `interval` (`R<n>/<inicio>/<período>`), `spent` SHALL contar 
 - **GIVEN** un grant con `interval` `R1/<inicio>/P1D`
 - **WHEN** se consulta después de terminado ese único día
 - **THEN** devuelve `status: "EXPIRED"`
+
+#### Scenario: Grant puntual semanal vencido no se usa para pagar
+- **GIVEN** un grant puntual con `interval` `R1/<inicio>/P1W` al que ya pasaron 8 días desde `<inicio>`
+- **WHEN** llega `POST /v1/payments` con ese grant
+- **THEN** responde `401 GRANT_INVALID`, el grant queda `EXPIRED` y no se llama a Open Payments
+- **AND** el final de la semana no se prueba contra la Test Wallet: lo hace cumplir el servicio
 
 ### Requirement: Creación de quote
 `POST /v1/quotes` SHALL crear el incoming payment en la wallet del receptor y una quote desde la wallet del usuario por el `receiveAmount` pedido. Responde `201` con `quoteId` propio, `debitAmount`, `receiveAmount`, `expiresAt` y `exceedsRemaining`.
@@ -331,12 +338,22 @@ Si todas las validaciones pasan, `POST /v1/payments` SHALL crear el outgoing pay
 - **AND** `GET /v1/grants/{grantId}` muestra `remaining` de 179.85
 
 ### Requirement: Token del grant inválido
-Los access tokens duran 600 s. El servicio SHALL rotarlos cuando están por vencer o ante un `401`, reintentando una vez. Si no puede rotarlo, MUST responder `401 GRANT_INVALID` para que el cliente pida un grant nuevo. [VERIFICAR] `token.rotate` en E4.
+Los access tokens duran 600 s. El servicio SHALL rotarlos cuando están por vencer, ante un `401`,
+o ante un `403` del servidor cuyo `debitAmount` entra en lo que queda del grant, reintentando una
+vez en cada caso. Si no puede rotarlo, MUST responder `401 GRANT_INVALID` para que el cliente pida
+un grant nuevo. Verificado en la Test Wallet (`payments/experiments/weekly-interval-and-token.md`,
+sección P4).
 
 #### Scenario: Grant usado después de 10 minutos
 - **GIVEN** un grant ACTIVE cuyo access token se emitió hace 11 minutos
 - **WHEN** llega `POST /v1/payments` dentro del presupuesto
 - **THEN** el servicio rota el token y el pago se crea con éxito
+
+#### Scenario: 403 con token vencido y monto dentro del límite
+- **GIVEN** un grant ACTIVE cuyo access token venció en la wallet aunque el servicio lo cree vigente
+- **WHEN** llega `POST /v1/payments` dentro del presupuesto y Open Payments rechaza el pago con su `403` genérico
+- **THEN** el servicio rota el token una vez y reintenta el pago con la misma `Idempotency-Key`
+- **AND** el pago se crea, el token nuevo queda guardado y no se debita dos veces
 
 #### Scenario: Token revocado
 - **GIVEN** un grant ACTIVE cuyo token fue revocado en la wallet

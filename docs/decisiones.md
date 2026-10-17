@@ -29,7 +29,7 @@ los cuatro. Contrato vigente: v1 más v1.1. Las novedades que surjan se deciden 
 
 | # | Tema | Decisión | Qué cambia |
 |---|---|---|---|
-| 1 | Vencimiento del grant puntual del exceso de límite | **Vence por semana** | Contradice `add-payments-service` D13 y `add-payments-client` ("se cancela con `DELETE`, sin `interval`"). **[PARA DECIDIR]** cómo se implementa: ver "Pendientes" abajo |
+| 1 | Vencimiento del grant puntual del exceso de límite | **Vence por semana** | La decisión de equipo no cambia. Cómo se implementa, **cerrado el 17 oct**: `limits.interval = R1/<momento de la solicitud en UTC>/P1W` (siempre `R1`) y se sigue cancelando con `DELETE /v1/grants/{id}` (A-1), que Node implementa con `grant.cancel`. Evidencia: `payments/experiments/weekly-interval-and-token.md` y `cancel-grant.md`. Ver "Pendientes" |
 | 2 | Comando por texto (D3) | **Siempre pide PIN**, sin modo de desarrollo | El PIN mínimo pasa de H3 a H1. Hasta que exista el teclado, el PIN se escribe en el campo de texto (`AWAITING_PIN` → `text`) |
 | 3 | Verificación del "sí" (D4) | **Solo se verifica el comando**, no el "sí" | El "sí" (~0,5 s) no alcanza para verificar: con 1,5 s los puntajes ya se solapan |
 | 3b | Puntaje de confianza por pipeline | **Cada pipeline entrega un puntaje de confianza.** Riguroso en la extracción de intención; más flexible en la transcripción | Requisito nuevo para `add-voice-understanding` (`intent-extraction` y `speech-transcription`) y campo nuevo en el contexto del motor. **[PARA DECIDIR]** los valores de corte (rol Voz) |
@@ -43,10 +43,14 @@ y umbral de voz 0.45 provisional (D6), que se fija en la sala con el micrófono 
 
 ### Pendientes de estas decisiones
 
-- **Grant puntual semanal:** ¿se pide con `limits.interval` de una semana (no probado en la Test
-  Wallet), o Node lo vence por su cuenta a los 7 días? ¿Se sigue cancelando al usarse
-  (`DELETE /v1/grants/{id}`, cambio A-1) o solo vence? Hasta decidirlo, `add-payments-service` y
-  `add-payments-client` describen la versión anterior.
+- ~~**Grant puntual semanal**~~ **(cerrado el 17 oct).** Se pide con `limits.interval =
+  R1/<momento de la solicitud en UTC>/P1W` (siempre `R1`; `R` o `Rn` renovarían el tope) y se
+  sigue cancelando al usarlo, al descartarlo o al reemplazarlo con `DELETE /v1/grants/{id}`
+  (A-1), que Node implementa con `grant.cancel`. El final de la semana no se prueba contra la
+  Test Wallet: Node marca el grant `EXPIRED` cuando termina su intervalo. Evidencia:
+  `payments/experiments/weekly-interval-and-token.md` y `cancel-grant.md`. La decisión de equipo
+  #1 no cambia, solo se define cómo se implementa; no hay cambio de contrato (`limit.interval` ya
+  es opcional en el Contrato A y A-1 está ratificado).
 - **ML 2 crea `openspec/changes/add-decision-engine/`** con `decision-engine`,
   `speaker-verification`, `voice-enrollment` y `pin-validation`. Sin ese cambio no hay spec para
   el motor de H1.

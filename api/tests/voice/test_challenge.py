@@ -155,3 +155,24 @@ def test_parametros_faltantes_o_de_mas_son_error(situacion, params):
 def test_frase_vacia_o_no_texto_en_say_es_error(frase):
     with pytest.raises(ValueError):
         say(Situation.CHALLENGE_RETRY, phrase=frase)
+
+
+# --- Situaciones que pidió ML 2 (add-ml2-integration, tarea 1.3)
+def test_confirm_challenge_overrun_avisa_del_exceso_y_pide_la_frase():
+    texto = say(Situation.CONFIRM_CHALLENGE_OVERRUN, amount=Amount("2000000", "COP", 2), name="Laura", phrase=FRASE)
+    assert texto == ("¿Le envío 20.000 pesos a Laura? Supera tu presupuesto y lo autorizarás en tu billetera. "
+                     "Para confirmar, repite: Mi casa tiene una puerta verde y grande.")
+
+
+def test_challenge_failed_rechaza_sin_enviar_nada():
+    assert say(Situation.CHALLENGE_FAILED) == "No coincidió la frase. No envié nada."
+
+
+@pytest.mark.parametrize("situacion,params", [
+    (Situation.CONFIRM_CHALLENGE_OVERRUN, {"amount": Amount("2000000", "COP", 2), "name": "Laura"}),
+    (Situation.CONFIRM_CHALLENGE_OVERRUN, {"name": "Laura", "phrase": FRASE}),
+    (Situation.CHALLENGE_FAILED, {"phrase": FRASE}),
+])
+def test_parametros_de_las_situaciones_nuevas_son_estrictos(situacion, params):
+    with pytest.raises(ValueError):
+        say(situacion, **params)
