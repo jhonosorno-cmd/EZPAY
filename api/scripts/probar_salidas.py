@@ -6,7 +6,8 @@ presupuesto concedido y la agenda provisional. Nada se guarda en disco.
 
 Uso (desde `api/`, en CMD):
   set PYTHONPATH=.
-  .venv\Scripts\python.exe scripts\probar_salidas.py
+  .venv\Scripts\python.exe scripts\probar_salidas.py          # un comando completo, con el JSON de cada rol
+  .venv\Scripts\python.exe scripts\probar_salidas.py --libre  # un comando tras otro, con un resumen corto
 """
 import json
 import sys
@@ -34,9 +35,32 @@ def _grabar_y_transcribir(engines):
     return transcribe(_pcm_to_wav_bytes(pcm), "salidas-test", consent_external=True, engines=engines)
 
 
+def _libre(engines) -> int:
+    """Modo libre: un comando tras otro, con un resumen corto de lo que entendió el sistema (Q para salir)."""
+    print("Modo libre: di cualquier comando de pago. Se muestra qué entendió el sistema. Q para salir.\n")
+    while True:
+        try:
+            t = _grabar_y_transcribir(engines)
+        except TranscribeInputError as err:
+            print(f"  Error de audio: {err.code.value} - {err}\n")
+            continue
+        if t is None:
+            return 0
+        s = salidas_del_comando(t.text, t.had_speech, t.engine.value)
+        monto = s["intent"]["amount"]
+        pesos = f"{int(monto['value']) / 10 ** monto['assetScale']:,.0f}" if monto else "-"
+        print(f"  OYÓ        : \"{t.text.strip()}\"   (motor: {t.engine.value})")
+        print(f"  MONTO      : {pesos}   {s['intent']['amountError'] or ''}")
+        print(f"  DESTINATARIO: {s['intent']['recipient'] or '-'}  ->  {s['resolution']['kind']}")
+        print(f"  DECISIÓN   : {s['decision']['decision']} / {s['decision']['reason']}")
+        print(f"  SE LE DICE : {s['say']}\n")
+
+
 def main() -> int:
     _cargar_env()
     engines = build_default_engines()
+    if "--libre" in sys.argv[1:]:
+        return _libre(engines)
     print('Di un comando, por ejemplo: "Envíale veinte mil a Laura hija".')
     try:
         t = _grabar_y_transcribir(engines)
