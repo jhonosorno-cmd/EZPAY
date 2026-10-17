@@ -267,6 +267,22 @@ def enrollment_status() -> tuple:
     return (200, _estados["enrollment"].status())
 
 
+def consent_external() -> bool:
+    """`consentExterno` para `voice.transcribe(..., consent_external, ...)`.
+
+    Con `True` Voz transcribe con Groq (whisper-large-v3-turbo) y solo cae al motor local si
+    Groq falla; con `False` NUNCA llama a Groq y transcribe con el modelo local, que entiende
+    mucho peor. El consentimiento único del enrolamiento cubre la transcripción externa
+    (opción B). Sin fachada o con error da `False`: ante la duda, la voz no sale del equipo."""
+    if not _estados["cargada"]:
+        return False
+    try:
+        return _estados["enrollment"].consent_external() is True
+    except Exception:
+        logger.warning("Speaker consent lookup failed")
+        return False
+
+
 def is_enrolled() -> bool:
     """`enrolled` del context del motor. Sin fachada o con error ⇒ False: el motor pide PIN (D3)."""
     if not _estados["cargada"]:

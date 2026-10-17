@@ -279,6 +279,10 @@ para `/api/enrollment`), igual que ante un fallo inesperado del modelo o del dis
   `SAMPLES_REQUIRED` se revisan ANTES de decodificar (B-5, en orden), el
   decoder de Voz decodifica las 3 partes y `EnrollmentError` se mapea 1 a 1
   (mensaje = código).
+- `consent_external() -> bool` — el `consentExterno` que Voz necesita para
+  transcribir con Groq (el consentimiento único del enrolamiento lo cubre). Sin
+  fachada o con error da `False`: ante la duda la voz no sale del equipo y se
+  usa el modelo local.
 - `enrollment_status() -> (200, {"enrolled": bool})` para la ruta (500
   `INTERNAL_ERROR` sin fachada) e `is_enrolled() -> bool` para el `enrolled` del
   `context` (sin fachada o con error da `False`: el motor pide PIN, D3). El borrado sigue siendo `scripts/delete_voiceprint.py` (PRIV-3).
@@ -291,7 +295,10 @@ import integration as ml2
 ml2.init()  # al arrancar el backend, una sola vez
 
 # turno: audio del comando -> voz y transcripción en paralelo
-voz, transcript = ml2.verify_and_transcribe(audio, lambda: transcribir(audio))
+# consent_external: con True Voz transcribe con Groq (cae al local solo si Groq falla);
+# con False transcribe SIEMPRE con el modelo local, que entiende mucho peor
+voz, transcript = ml2.verify_and_transcribe(
+    audio, lambda: transcribe(audio, request_id, ml2.consent_external(), engines))
 contexto = {"phase": "COMMAND", "voice": voz, "intent": intent, "resolution": resolucion,
             "enrolled": ml2.is_enrolled(), ...}
 decision = decide(parse_context(contexto))
@@ -310,8 +317,8 @@ Ejemplo de un turno de confirmación con desafío (fase CONFIRMATION):
 
 ```python
 # la respuesta por voz al desafío -> confirmation del B11 y decisión del motor
-voz_respuesta, transcript = ml2.verify_and_transcribe(audio_respuesta,
-                                                      lambda: transcribir(audio_respuesta))
+voz_respuesta, transcript = ml2.verify_and_transcribe(
+    audio_respuesta, lambda: transcribe(audio_respuesta, request_id, ml2.consent_external(), engines))
 # transcript es el Transcript de Voz: a la fachada va su .text
 confirmation = ml2.build_confirmation("CHALLENGE", transcript=transcript.text,
                                       expected_phrase=sesion["frasePedida"],

@@ -88,6 +88,9 @@ class EnrolamientoDoble:
     def status(self):
         return {"enrolled": self.estado}
 
+    def consent_external(self):
+        return self.estado
+
 
 def fachada(verificador=None, decoder=None, enrolamiento=None, banco=None, timeout=2.0):
     init(verifier=verificador if verificador is not None else VerificadorDoble(),
@@ -388,6 +391,22 @@ class TestEnrolamientoWeb(BaseIntegration):
         self.assertEqual((500, {"error": {"code": "INTERNAL_ERROR", "message": "INTERNAL_ERROR"}}),
                          enrollment_status())
         self.assertFalse(integration.is_enrolled())
+
+    def test_consent_external_alimenta_a_voz_para_que_use_groq(self):
+        fachada(enrolamiento=EnrolamientoDoble(estado=True))
+        self.assertIs(True, integration.consent_external())
+        fachada(enrolamiento=EnrolamientoDoble(estado=False))
+        self.assertIs(False, integration.consent_external())
+
+    def test_consent_external_falla_cerrado_a_false(self):
+        class SinConsulta:
+            def consent_external(self):
+                raise RuntimeError("disk")
+
+        fachada(enrolamiento=SinConsulta())
+        self.assertIs(False, integration.consent_external())
+        integration._reiniciar()
+        self.assertIs(False, integration.consent_external())
 
     def test_fallo_inesperado_del_enrolamiento_es_500(self):
         class EnrolamientoQueFalla:
