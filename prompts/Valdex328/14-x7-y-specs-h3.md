@@ -28,6 +28,66 @@ Posterior a esto, inicia con la implementación con el builder.
 La prueba X-7 la correré después.
 ````
 
+## Prompt 3 (estado de H3 y prioridades)
+
+````text
+que no he revisado hasta donde vamos de H3? qué debo priorizar?
+````
+
+## Prompt 4 (ejecutar las pruebas de la fachada)
+
+````text
+empecemos con las pruebas. Cuales son los archivos que tengo que ejecutar.
+````
+
+## Prompt 5 (resultado de las pruebas de la fachada)
+
+````text
+**...........Facade failed to decode enrollment audio**
+
+**...Speaker enrollment failed (RuntimeError)**
+
+**Speaker enrollment status failed**
+
+**.Facade not loaded**
+
+**........Speaker verification failed**
+
+**Facade failed to decode audio**
+
+**.Facade not loaded**
+
+**Facade not loaded**
+
+**...Speaker verification timed out**
+
+**Speaker verification busy; returning NOT_AVAILABLE**
+
+**.**
+
+Ran 28 tests in 1.442s
+
+OK
+
+....................................................................................................................................................... [ 15%]
+
+.................................................................................................................ss.................................... [ 30%]
+
+....................................................................................................................................................... [ 45%]
+
+....................................................................................................................................................... [ 61%]
+
+....................................................................................................................................................... [ 76%]
+
+....................................................................................................................................................... [ 91%]
+
+................................................................................                                                                        [100%]
+
+984 passed, 2 skipped in 29.65s
+
+Esto me dio la ejecución de las pruebas. Hubo fallos en el primero
+````
+
 ---
 
-Registro: 2026-10-17 · transcripción literal de la sesión "Hachathon Interledger EZPAY". Las instrucciones que la IA redactó para los agentes están en `10-instrucciones-a-agentes.md` (A14, A15 y B12).
+Registro: 2026-10-17 · transcripción literal de la sesión "Hachathon Interledger EZPAY". Las instrucciones que la IA redactó para los agentes están en `10-instrucciones-a-agentes.md` (A14, A15, B12 y B13).

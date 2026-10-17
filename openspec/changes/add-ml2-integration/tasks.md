@@ -6,8 +6,8 @@
 
 ## 2. Fachada (H3)
 
-- [ ] 2.1 Pruebas de los escenarios de `voice-turn-integration`, escritas antes del código
-- [ ] 2.2 Implementar `api/integration.py` (sin HTTP y sin estado)
+- [x] 2.1 Pruebas de los escenarios de `voice-turn-integration`, escritas antes del código
+- [x] 2.2 Implementar `api/integration.py` (sin HTTP y sin estado)
 - [ ] 2.3 La unidad 7 de Pagos integra la fachada
 
 ## 3. Calibración en la sala (H3)
