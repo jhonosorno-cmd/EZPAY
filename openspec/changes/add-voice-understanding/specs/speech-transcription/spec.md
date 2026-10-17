@@ -4,14 +4,20 @@
 
 Convertir el audio de un comando en texto en español, sin guardarlo, enviándolo a un proveedor externo solo
 con consentimiento y sin que el silencio o el ruido se confundan con una respuesta. Origen: Spec general §5
-(PRIV-1, PRIV-4), §4 (SEG-2), la revisión del rol Voz del 13 de octubre (espacio de trabajo previo) (V-08, V-09, V-12, V-19) y
-`voz-ml1/experimentos/x1-whisper-comparacion.md`. Los requisitos que dependen de decisiones del equipo (D1, D6)
-están marcados.
+(PRIV-1, PRIV-4), §4 (SEG-2), la revisión del rol Voz del 13 de octubre (espacio de trabajo previo) (V-08,
+V-09, V-12, V-19), `voz-ml1/experimentos/x1-whisper-comparacion.md` y lo ratificado el 16 de octubre
+(`docs/contratos-cambios-propuestos-v1.1.md` B-2, B-3 y B-7; `docs/decisiones.md` 3b; opción B de
+`verificacion-ml2/textos-enrolamiento.md`).
+
+Los códigos de `/turns` de B-3 (`INVALID_AUDIO`, `AUDIO_TOO_LONG`, `AUDIO_OR_TEXT_REQUIRED`) están
+ratificados. Este spec define la validación de la entrada de audio como **resultados** de la validación; el
+mapeo 1:1 a respuestas HTTP `400 { error: { code, message } }` lo hace el orquestador (Pagos,
+`turn-orchestration`), para no duplicar reglas del turno entre capabilities.
 
 ## ADDED Requirements
 
 ### Requirement: El audio se decodifica y se procesa solo en memoria
-El sistema SHALL decodificar el audio recibido a PCM en memoria, una sola vez por turno, y entregar el mismo buffer a la transcripción y a la verificación de hablante. El audio MUST NOT escribirse en disco, ni siquiera como archivo temporal.
+El sistema SHALL decodificar el audio recibido a PCM float32 16 kHz mono en memoria, una sola vez por turno, y entregar el mismo buffer a la transcripción y a la verificación de hablante (contrato-voz §4). El audio MUST NOT escribirse en disco, ni siquiera como archivo temporal.
 
 #### Scenario: Comando de voz procesado
 - **WHEN** se procesa un comando de voz y luego se revisan los archivos temporales y la base de datos
@@ -22,16 +28,33 @@ El sistema SHALL decodificar el audio recibido a PCM en memoria, una sola vez po
 - **THEN** el audio se decodifica una sola vez
 - **AND** ambos consumidores reciben el mismo buffer
 
+### Requirement: El consentimiento externo llega como dato, no lo decide el módulo
+[DECIDIDO, Sebastián 2026-10-16] La transcripción SHALL recibir `consentExterno: bool` como parámetro explícito y MUST NOT consultar el enrolamiento por su cuenta. Quien lo guarda es el enrolamiento de ML 2; quien lo lee del estado de enrolamiento y se lo pasa a `transcribe` es el orquestador de Pagos; quién usa Groq o local lo decide Voz. Sin enrolamiento o ante un valor desconocido, el valor efectivo MUST ser `false` (transcripción local).
+
+#### Scenario: Usuaria enrolada con consentimiento
+- **WHEN** la usuaria se enroló con `consent=true` y el orquestador llama a la transcripción con `consentExterno: true`
+- **THEN** el audio puede enviarse al proveedor externo, con las reglas de respaldo de este spec
+
+#### Scenario: Usuaria sin enrolar
+- **WHEN** la usuaria no se enroló y envía un comando de voz
+- **THEN** `consentExterno` es `false` y la transcripción es local
+- **AND** el comando igual pide PIN (sin huella de voz la verificación no está disponible; D3)
+
+#### Scenario: Comando por texto
+- **WHEN** el turno llega con `text`
+- **THEN** no se llama a la transcripción, ni local ni externa
+- **AND** el comando pide PIN (decisión #2 del 16 oct, `docs/decisiones.md`)
+
 ### Requirement: Audio a un proveedor externo solo con consentimiento
-El sistema SHALL enviar el audio a un proveedor de transcripción externo únicamente si el usuario dio consentimiento explícito para ello en el enrolamiento (PRIV-2). Sin ese consentimiento, o si el proveedor no responde en su plazo, MUST transcribir localmente. El proveedor MUST NOT recibir embeddings de voz. Depende de la decisión D1 (actualizada) y del cambio C-3 propuestos al equipo.
+El sistema SHALL enviar el audio a un proveedor de transcripción externo únicamente si `consentExterno` es verdadero (PRIV-2). Sin ese consentimiento, o si el proveedor no responde en su plazo, MUST transcribir localmente. El proveedor externo es Groq `whisper-large-v3-turbo` y el respaldo local es `base` de faster-whisper (decidido, contrato-voz §4). El proveedor MUST NOT recibir embeddings de voz.
 
 #### Scenario: Usuario con consentimiento
-- **WHEN** el usuario dio consentimiento y se procesa un comando de voz
+- **WHEN** `consentExterno` es verdadero y se procesa un comando de voz
 - **THEN** el audio se envía al proveedor configurado
 - **AND** la transcripción vuelve en el plazo del turno
 
 #### Scenario: Usuario sin consentimiento
-- **WHEN** el usuario no dio consentimiento para el proveedor externo y se procesa un comando de voz
+- **WHEN** `consentExterno` es falso y se procesa un comando de voz
 - **THEN** el audio se transcribe localmente
 - **AND** no se hace ninguna conexión saliente con el audio
 
@@ -99,36 +122,54 @@ Si el proveedor responde con límite de uso excedido (HTTP 429), el sistema SHAL
 - **THEN** el sistema transcribe localmente el mismo audio
 - **AND** el usuario no ve ningún error
 
-### Requirement: Entradas de audio inválidas
-Un `POST /turns` con audio vacío, ilegible o en formato no soportado SHALL responder `400 INVALID_AUDIO`; con un audio más largo que 30 s, `400 AUDIO_TOO_LONG`; la duración se lee de la cabecera **antes** de decodificar. El tope sale de la medición de ML 2 (la memoria crece ~10 MB por segundo de audio) y el navegador corta antes, a los 15 s. **Cambio de contrato** (D6): no está en el Contrato B de hoy.
+### Requirement: Puntaje de confianza de la transcripción
+La transcripción SHALL entregar un puntaje `transcriptConfidence` (`number | null`) junto al texto, como campo del resultado de la transcripción, para el `context` del motor (regla 2b). Mientras no exista una fuente calibrada, el puntaje MUST ser `null`; con los cortes desactivados (`null` en H1) el motor lo ignora. Los cortes los fija Sebastián con la batería de audio real de H3 [DECIDIDO, 2026-10-16]; sin evidencia antes del sábado 17 a las 10:00, se ratifica `null`.
+
+#### Scenario: Entrega en H1
+- **WHEN** se transcribe un comando de voz en H1
+- **THEN** el resultado incluye `transcriptConfidence: null`
+- **AND** el orquestador puede pasarlo al motor sin efecto (corte desactivado)
+
+#### Scenario: Comando por texto
+- **WHEN** el comando llega como `text`
+- **THEN** no hay transcripción y el puntaje es `null`
+
+### Requirement: Audio ilegible
+El módulo SHALL validar el audio antes de decodificarlo: bytes vacíos, no legibles o en formato no soportado MUST producir `INVALID_AUDIO` sin decodificar. El orquestador lo responde como `400 INVALID_AUDIO` con el cuerpo `{ error: { code, message } }` (B-3, ratificado).
 
 #### Scenario: Audio ilegible
 - **WHEN** llega un `POST /turns` con bytes que no son audio
-- **THEN** responde `400 INVALID_AUDIO` con el cuerpo `{ error: { code, message } }`
+- **THEN** el resultado de la validación es `INVALID_AUDIO`
+- **AND** el orquestador responde `400` con el cuerpo `{ error: { code, message } }`
+
+### Requirement: Audio demasiado largo
+El módulo SHALL leer la duración de la cabecera antes de decodificar: si supera 30 s, el resultado MUST ser `AUDIO_TOO_LONG` y no se decodifica ni se transcribe. El orquestador lo responde como `400 AUDIO_TOO_LONG` (B-3). El tope sale de la medición de ML 2 (~10 MB por segundo de audio); el navegador corta antes, a los 15 s (`web-voice-io`).
 
 #### Scenario: Audio demasiado largo
 - **WHEN** llega un audio de 60 s
-- **THEN** responde `400 AUDIO_TOO_LONG` leyendo solo la cabecera
+- **THEN** el resultado es `AUDIO_TOO_LONG` leyendo solo la cabecera
 - **AND** no se decodifica ni se transcribe
 
 ### Requirement: Entrada de texto o de audio, no ambas ni ninguna
-Un `POST /turns` SHALL traer exactamente uno de `audio` o `text`. Si trae los dos o ninguno, MUST responder `400 AUDIO_OR_TEXT_REQUIRED`, con una sola excepción: si la sesión está en `PAYMENT_PENDING`, un `POST /turns` con `sessionId` y sin `audio` ni `text` es el turno de verificación del pago pendiente y MUST aceptarse (propuesta de Pagos D-2; el Frontend lo pidió como F-1). **Cambio de contrato** (D6).
+Un `POST /turns` SHALL traer exactamente uno de `audio` o `text`; si trae los dos o ninguno, el resultado MUST ser `AUDIO_OR_TEXT_REQUIRED`, con la única excepción del turno de verificación de `PAYMENT_PENDING` (B-2), identificado por `kind=verify_pending` más `sessionId`, sin `audio` ni `text`; ese turno no pasa por el módulo de voz. **[DECIDIDO por Voz, 2026-10-16; ratificación del Contrato B pendiente del equipo]** (el campo sigue `x-proposed` en el contrato).
 
 #### Scenario: Ambos campos
 - **WHEN** llega un `POST /turns` con `audio` y `text`
-- **THEN** responde `400 AUDIO_OR_TEXT_REQUIRED`
+- **THEN** el resultado es `AUDIO_OR_TEXT_REQUIRED`
+- **AND** el orquestador responde `400` con el cuerpo `{ error: { code, message } }`
 
 #### Scenario: Ninguno
-- **WHEN** llega un `POST /turns` sin `audio` ni `text` y la sesión no está en `PAYMENT_PENDING`
-- **THEN** responde `400 AUDIO_OR_TEXT_REQUIRED`
+- **WHEN** llega un `POST /turns` sin `audio`, sin `text` y sin `kind=verify_pending`, aunque la sesión esté en `PAYMENT_PENDING`
+- **THEN** el resultado es `AUDIO_OR_TEXT_REQUIRED`
+- **AND** el orquestador responde `400` con el cuerpo `{ error: { code, message } }`
 
-#### Scenario: Verificación de un pago pendiente
-- **WHEN** llega un `POST /turns` con `sessionId` de una sesión en `PAYMENT_PENDING` y sin `audio` ni `text`
+#### Scenario: Turno de verificación del pago pendiente
+- **WHEN** llega un `POST /turns` con `sessionId` y `kind=verify_pending`, sin `audio` ni `text`
 - **THEN** se acepta como turno de verificación
-- **AND** no responde `AUDIO_OR_TEXT_REQUIRED`
+- **AND** no responde `AUDIO_OR_TEXT_REQUIRED` y no llama al módulo de voz
 
 ### Requirement: La transcripción no se guarda en logs
-Los logs MUST NOT contener la transcripción completa ni el audio. La transcripción SHALL viajar solo en la respuesta (`transcript`) para mostrarse en pantalla. Cada línea de log MUST llevar el `X-Request-Id`.
+Los logs MUST NOT contener la transcripción completa ni el audio. La transcripción SHALL viajar solo en la respuesta (`transcript`) para mostrarse en pantalla. En un turno de PIN, `transcript` es `null` (B-7): el módulo de voz no participa en esos turnos. Cada línea de log MUST llevar el `X-Request-Id`.
 
 #### Scenario: Revisión de logs después de un comando
 - **WHEN** se procesa un comando de voz y se revisan los logs del backend
