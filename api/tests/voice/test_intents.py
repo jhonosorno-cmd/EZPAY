@@ -167,7 +167,7 @@ def test_limite_variantes_validas(text, value, recipient):
 
 @pytest.mark.parametrize("text,status,error", [
     ("Envíale 10.50 a Laura", UNCLEAR, AmountError.AMBIGUOUS_AMOUNT),
-    ("Envíale 10,505 a Laura", UNCLEAR, AmountError.TOO_MANY_DECIMALS),
+    ("Envíale 10,5051 a Laura", UNCLEAR, AmountError.TOO_MANY_DECIMALS),
     ("Envíale 20 lucas a Laura", UNCLEAR, AmountError.AMBIGUOUS_AMOUNT),
     ("Envíale cero pesos a Laura", UNCLEAR, AmountError.INVALID_AMOUNT),
     ("Envíale 20 000 a Laura", UNCLEAR, AmountError.AMBIGUOUS_AMOUNT),

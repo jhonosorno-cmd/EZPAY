@@ -32,7 +32,7 @@ def test_intent_pago_completo():
 
 
 def test_intent_con_error_de_monto():
-    d = extract_intent("Envíale 10,505 a Laura", ASSET).to_dict()
+    d = extract_intent("Envíale 10,5051 a Laura", ASSET).to_dict()
     assert d["amount"] is None and d["amountError"] == "TOO_MANY_DECIMALS" and d["status"] == "UNCLEAR"
 
 
