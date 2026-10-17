@@ -17,7 +17,7 @@ const store = new Store(cfg.dbPath, new Cipher(cfg.dbEncryptionKey))
 const op = instrument(await SdkOpenPayments.create({
   walletAddress: cfg.walletAddress, keyId: cfg.keyId, privateKey: cfg.privateKey, timeoutMs: cfg.opTimeoutMs,
 }))
-const svc = new PaymentsService(store, op)
+const svc = new PaymentsService(store, op, { log: (l) => console.log(JSON.stringify(l)) })
 svc.recover()
 
 // Solo acceso local, sin CORS.
