@@ -88,3 +88,28 @@ def agregar_fila(ruta: Path, *, quien: str, ruido: str, numero: int, frase: Fras
         escritor.writerow([_celda(v) for v in (quien, ruido, numero, frase.decir,
                                                 frase.tipo, texto.strip(), motor, hubo_voz, resultado.interpretado,
                                                 resultado.veredicto)])
+
+
+def seleccionar_frases(texto: str) -> list[tuple[int, Frase]]:
+    """`"1,3,5-7"` -> [(1, f1), (3, f3), (5, f5), ...]; vacío = todas. El número es el de la lista completa."""
+    if not texto.strip():
+        return list(enumerate(FRASES, 1))
+    numeros: list[int] = []
+    for parte in texto.split(","):
+        parte = parte.strip()
+        try:
+            if "-" in parte:
+                desde, hasta = (int(x) for x in parte.split("-"))
+                rango = list(range(desde, hasta + 1))
+                if desde > hasta:
+                    raise ValueError
+            else:
+                rango = [int(parte)]
+        except ValueError:
+            raise ValueError(f"frases inválidas: {parte!r}; usa números del 1 al {len(FRASES)}, como 1,3,5-7") from None
+        for n in rango:
+            if not 1 <= n <= len(FRASES):
+                raise ValueError(f"la frase {n} no existe; hay de 1 a {len(FRASES)}")
+            if n not in numeros:
+                numeros.append(n)
+    return [(n, FRASES[n - 1]) for n in numeros]
