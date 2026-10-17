@@ -25,10 +25,11 @@ from pin import verify_pin
 from voice import phrases
 from voice.amounts import Amount as VoiceAmount
 from voice.amounts import AssetConfig
-from voice.contacts import Kind, Resolution, load_agenda, resolve_choice, resolve_recipient
+from voice.contacts import Kind, Resolution, resolve_choice, resolve_recipient
 from voice.intents import extract_intent
 from voice.replies import Reply, classify_reply
 
+from .contacts import ContactBook, WalletResolver
 from .state import Command, PendingAuth, PendingPayment, Session, SessionStore, TurnState, WalletState
 from .voice_io import NOT_AVAILABLE, VoiceIO
 
@@ -90,13 +91,16 @@ def _vamount(amount: dict) -> VoiceAmount:
 
 class Orchestrator:
     def __init__(self, settings, payments, voice_io: VoiceIO, sessions: SessionStore | None = None,
-                 wallet: WalletState | None = None, pin_verifier=verify_pin, clock=_now):
+                 wallet: WalletState | None = None, pin_verifier=verify_pin, clock=_now,
+                 contacts: ContactBook | None = None):
         self.settings = settings
         self.payments = payments
         self.voice = voice_io
         self.sessions = sessions or SessionStore()
         self.wallet = wallet or WalletState(settings.data_dir)
-        self.agenda = load_agenda(settings.agenda_path)
+        self.contacts = contacts or ContactBook(settings.data_dir / "contacts.json", WalletResolver(),
+                                                settings.asset_code, settings.asset_scale,
+                                                settings.wallet_address, settings.agenda_path)
         self.asset = AssetConfig(settings.asset_code, settings.asset_scale)
         self._verify_pin = pin_verifier
         self._clock = clock
@@ -199,9 +203,12 @@ class Orchestrator:
     def _transcribe(self, audio, rid, verify):
         from voice.transcribe import TranscribeInputError
 
-        from .voice_io import TranscriptionUnavailable
+        from .voice_io import RemoteSttFailed, TranscriptionUnavailable
         try:
             result, voice = self.voice.transcribe_command(audio, rid, verify=verify)
+        except RemoteSttFailed:
+            logger.error("Groq transcription failed requestId=%s (no local fallback)", rid)
+            raise ApiFailure(500, "INTERNAL_ERROR", "Error interno") from None
         except TranscribeInputError as err:
             code = err.code.value
             message = "El audio supera los 30 segundos" if code == "AUDIO_TOO_LONG" else "El audio no se pudo leer"
@@ -222,7 +229,7 @@ class Orchestrator:
         intent = extract_intent(text, self.asset)
         cmd = Command(intent=intent.to_dict(), voice=voice, transcript_confidence=confidence)
         if intent.recipient is not None:
-            cmd.resolution = resolve_recipient(intent.recipient, self.agenda)
+            cmd.resolution = resolve_recipient(intent.recipient, self.contacts.agenda())
         session.command = cmd
         return self._evaluate_command(session, cmd, transcript=text, rid=rid)
 
@@ -281,7 +288,7 @@ class Orchestrator:
             session.reset_command()
             session.state = TurnState.REJECTED
             return TurnResult(session, phrases.say(phrases.Situation.CANCELLED), transcript=text)
-        resolution = resolve_choice(text, session.options, self.agenda)
+        resolution = resolve_choice(text, session.options, self.contacts.agenda())
         if resolution.kind is not Kind.RESOLVED:
             return TurnResult(session, self._choice_say(session.options), transcript=text,
                               options=[o.to_dict() for o in session.options])

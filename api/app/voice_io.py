@@ -22,6 +22,17 @@ class TranscriptionUnavailable(Exception):
     """Los motores de transcripción no están instalados en este entorno."""
 
 
+class RemoteSttFailed(Exception):
+    """Modo solo Groq: el proveedor falló y no hay respaldo local."""
+
+
+class _LocalDisabled:
+    """Respaldo local apagado (EZPAY_STT_PROVIDER=groq): si Groq falla, el turno falla."""
+
+    def transcribe(self, pcm):
+        raise RemoteSttFailed()
+
+
 class _CapturingDecoder:
     """Envuelve el decoder de Voz para quedarse con el PCM y reusarlo en la verificación."""
 
@@ -35,8 +46,9 @@ class _CapturingDecoder:
 
 
 class VoiceIO:
-    def __init__(self, engines: Engines | None = None, verifier=None, enrollment=None):
+    def __init__(self, engines: Engines | None = None, verifier=None, enrollment=None, stt_provider: str = "groq"):
         self._engines = engines
+        self.groq_only = stt_provider == "groq"
         self._engines_error = False
         self.verifier = verifier
         self.enrollment = enrollment
@@ -46,7 +58,14 @@ class VoiceIO:
         if self._engines is None:
             try:
                 from voice.engines import build_default_engines
-                self._engines = build_default_engines()
+                engines = build_default_engines()
+                if self.groq_only:
+                    import os
+                    engines = Engines(decoder=engines.decoder, speech_filter=engines.speech_filter,
+                                      remote=engines.remote, local=_LocalDisabled(), sleep=engines.sleep)
+                    if not os.environ.get("GROQ_API_KEY"):
+                        logger.error("EZPAY_STT_PROVIDER=groq but GROQ_API_KEY is not set: audio turns will fail")
+                self._engines = engines
             except Exception as exc:  # ImportError de av/faster-whisper/numpy
                 self._engines_error = True
                 logger.warning("Transcription engines unavailable (%s); audio turns will fail", type(exc).__name__)
@@ -58,7 +77,7 @@ class VoiceIO:
                 self.enrollment = SpeakerEnrollment(self.verifier)
             except Exception as exc:  # numpy ausente
                 logger.warning("Speaker verification unavailable (%s)", type(exc).__name__)
-        if warmup_local and self._engines is not None:
+        if warmup_local and self._engines is not None and not self.groq_only:
             threading.Thread(target=self._warmup, daemon=True).start()
 
     def _warmup(self) -> None:
@@ -81,6 +100,8 @@ class VoiceIO:
         return bool(self.enrollment.status()["enrolled"])
 
     def consent_external(self) -> bool:
+        if self.groq_only:  # decisión del equipo (17 oct): la transcripción va siempre a Groq
+            return True
         try:
             return bool(self.enrollment and self.enrollment.consent_external())
         except Exception:

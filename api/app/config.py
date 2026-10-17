@@ -37,7 +37,8 @@ class Settings:
     user_id: str
     wallet_address: str | None
     finish_uri: str
-    agenda_path: Path
+    agenda_path: Path | None
+    stt_provider: str
     data_dir: Path
     high_amount_value: str | None
     pending_window_seconds: int
@@ -55,7 +56,6 @@ class Settings:
 
 def load_settings() -> Settings:
     _load_dotenv(API_DIR / ".env")
-    from voice.config import AGENDA_PATH
 
     return Settings(
         asset_code=_env("ASSET_CODE", "COP"),
@@ -65,7 +65,10 @@ def load_settings() -> Settings:
         # Wallet de la usuaria de la demo (la misma WALLET_ADDRESS de payments/.env).
         wallet_address=_env("EZPAY_WALLET_ADDRESS") or _env("WALLET_ADDRESS"),
         finish_uri=_env("EZPAY_FINISH_URI", "http://localhost:5173/grant-callback"),
-        agenda_path=Path(_env("EZPAY_AGENDA_PATH", str(AGENDA_PATH))),
+        # Agenda inicial opcional (JSON con `contacts`); los contactos se agregan desde la web.
+        agenda_path=Path(_env("EZPAY_AGENDA_PATH")) if _env("EZPAY_AGENDA_PATH") else None,
+        # groq: solo Groq (sin whisper local). auto: Groq con consentimiento y respaldo local.
+        stt_provider=_env("EZPAY_STT_PROVIDER", "groq"),
         data_dir=Path(_env("EZPAY_APP_DATA_DIR", str(API_DIR / ".data" / "app"))),
         # 100.000 COP (X-4, 2026-10-17, design.md de add-decision-engine); vacío = desactivado
         high_amount_value=_env("EZPAY_HIGH_AMOUNT_VALUE", "10000000"),
@@ -74,5 +77,5 @@ def load_settings() -> Settings:
         default_budget_value=_env("EZPAY_DEFAULT_BUDGET_VALUE", "20000000"),
         default_budget_interval=_env("EZPAY_DEFAULT_BUDGET_INTERVAL"),
         cors_origins=tuple(_env("EZPAY_CORS_ORIGINS", "http://localhost:5173").split(",")),
-        warmup_local_whisper=_env("EZPAY_WARMUP_WHISPER", "1") == "1",
+        warmup_local_whisper=_env("EZPAY_WARMUP_WHISPER", "0") == "1",
     )

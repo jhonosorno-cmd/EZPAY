@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -21,6 +21,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from payments_client import PaymentsClient
 
 from .config import load_settings
+from .contacts import ContactError
 from .orchestrator import ApiFailure, Orchestrator
 from .voice_io import TranscriptionUnavailable, VoiceIO
 
@@ -43,22 +44,22 @@ def create_app(orchestrator: Orchestrator | None = None, voice_io: VoiceIO | Non
     @asynccontextmanager
     async def lifespan(_app):
         if state["voice"] is None:
-            state["voice"] = VoiceIO()
+            state["voice"] = VoiceIO(stt_provider=settings.stt_provider)
             state["voice"].load(warmup_local=settings.warmup_local_whisper)
         if state["orchestrator"] is None:
             payments = PaymentsClient(node_base_url=settings.node_base_url, asset_code=settings.asset_code,
                                       asset_scale=settings.asset_scale)
             state["orchestrator"] = Orchestrator(settings, payments, state["voice"])
             _app.state.session_store = state["orchestrator"].sessions
-        logger.info("EZPAY api ready (node=%s, speaker=%s, wallet=%s)", settings.node_base_url,
-                    "ready" if state["voice"].speaker_ready else "unavailable",
-                    "configured" if settings.wallet_address else "MISSING")
+        logger.info("EZPAY api ready (node=%s, stt=%s, speaker=%s, wallet=%s, contacts=%d)", settings.node_base_url,
+                    settings.stt_provider, "ready" if state["voice"].speaker_ready else "unavailable",
+                    settings.wallet_address or "MISSING", len(state["orchestrator"].contacts.list()))
         yield
 
     app = FastAPI(title="EZPAY Contract B", version="1.1.0", lifespan=lifespan, docs_url=None, redoc_url=None)
     if orchestrator is not None:
         app.state.session_store = orchestrator.sessions
-    app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["GET", "POST"],
+    app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["GET", "POST", "DELETE"],
                        allow_headers=["Content-Type", "X-Request-Id"], expose_headers=["X-Request-Id"])
 
     @app.middleware("http")
@@ -153,6 +154,32 @@ def create_app(orchestrator: Orchestrator | None = None, voice_io: VoiceIO | Non
     @app.get("/api/budget")
     async def get_budget(request: Request):
         return await run_in_threadpool(orch().get_budget, request.state.rid)
+
+    # ------------------------------------------------------------- contactos
+    @app.get("/api/contacts")
+    async def list_contacts():
+        return {"contacts": orch().contacts.list()}
+
+    @app.post("/api/contacts", status_code=201)
+    async def add_contact(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            raise ApiFailure(400, "INVALID_REQUEST", "La petición no es válida") from None
+        if not isinstance(body, dict):
+            raise ApiFailure(400, "INVALID_REQUEST", "La petición no es válida")
+        try:
+            return await run_in_threadpool(orch().contacts.add, body.get("name"), body.get("walletAddress"))
+        except ContactError as err:
+            raise ApiFailure(err.status, err.code, err.message) from None
+
+    @app.delete("/api/contacts/{alias}", status_code=204)
+    async def delete_contact(alias: str):
+        try:
+            orch().contacts.remove(alias)
+        except ContactError as err:
+            raise ApiFailure(err.status, err.code, err.message) from None
+        return Response(status_code=204)
 
     # ----------------------------------------------------------- enrolamiento
     @app.get("/api/enrollment")
