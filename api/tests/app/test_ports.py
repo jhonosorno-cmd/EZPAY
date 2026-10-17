@@ -53,9 +53,14 @@ class FakeClock:
 
 
 class PortsWiringTest(unittest.TestCase):
+    def client_with(self, **ports):
+        import fakes
+
+        return create_app(pin_validator=fakes.test_pin_validator(), **ports)
+
     def test_audio_turn_calls_the_transcriber_with_the_uploaded_bytes(self):
         transcriber = RecordingTranscriber("hola")
-        app = create_app(transcriber=transcriber, verifier=RecordingVerifier(), clock=FakeClock())
+        app = self.client_with(transcriber=transcriber, verifier=RecordingVerifier(), clock=FakeClock())
         client = TestClient(app)
         r = client.post("/api/turns", files=[("audio", ("comando.wav", b"RIFF-DE-PRUEBA", "audio/wav"))])
         self.assertEqual(r.status_code, 200)
@@ -65,7 +70,7 @@ class PortsWiringTest(unittest.TestCase):
         self.assertEqual(r.json()["transcript"], "hola")
 
     def test_without_transcriber_the_server_still_starts_and_answers_reask(self):
-        app = create_app()
+        app = self.client_with()
         client = TestClient(app)
         r = client.post("/api/turns", files=[("audio", ("comando.wav", b"RIFF", "audio/wav"))])
         self.assertEqual(r.status_code, 200)
@@ -73,7 +78,7 @@ class PortsWiringTest(unittest.TestCase):
         self.assertEqual(r.json()["state"], "AWAITING_COMMAND")
 
     def test_create_app_accepts_every_port_and_still_serves_the_contract(self):
-        app = create_app(
+        app = self.client_with(
             transcriber=RecordingTranscriber(),
             verifier=RecordingVerifier(),
             clock=FakeClock(),

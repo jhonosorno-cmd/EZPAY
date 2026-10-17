@@ -21,7 +21,10 @@ class LogCapture(logging.Handler):
 
 class PrivacyTest(unittest.TestCase):
     def setUp(self):
-        self.app = create_app()
+        # el estado global del PIN de prueba va a un tmp: nunca api/.data/pin/
+        import fakes
+
+        self.app = create_app(pin_validator=fakes.test_pin_validator())
         self.client = TestClient(self.app)
         self.capture = LogCapture()
         self.logger = logging.getLogger("api.app")

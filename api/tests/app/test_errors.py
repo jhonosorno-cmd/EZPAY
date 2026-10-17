@@ -4,13 +4,15 @@ import unittest
 
 from fastapi.testclient import TestClient
 
+import fakes
 from app.main import create_app
 import contract
 
 
 class ErrorsTest(unittest.TestCase):
     def setUp(self):
-        self.app = create_app()
+        # el estado global del PIN de prueba va a un tmp: nunca api/.data/pin/
+        self.app = create_app(pin_validator=fakes.test_pin_validator())
         self.client = TestClient(self.app)
 
     def assert_contract_error(self, r, code, status):

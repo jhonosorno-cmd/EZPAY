@@ -1,4 +1,6 @@
 """Dobles compartidos de las pruebas del orquestador (layout plano, nombres únicos)."""
+import tempfile
+import weakref
 from datetime import datetime, timedelta, timezone
 
 from pin import PinValidator, build_hash_spec
@@ -9,6 +11,17 @@ from app.main import create_app
 import node_double
 
 TEST_PIN = "2468"
+
+
+def test_pin_validator():
+    """PinValidator aislado: hash de prueba y estado global en un tmp (NUNCA api/.data)."""
+    tmp = tempfile.TemporaryDirectory()
+    validator = PinValidator(
+        hash_provider=lambda: build_hash_spec(TEST_PIN),
+        data_dir=tmp.name,
+    )
+    weakref.finalize(validator, tmp.cleanup)
+    return validator
 
 
 class FixedClock:
@@ -66,7 +79,7 @@ def make_app(fake_node: node_double.FakeNode | None = None, *, transcriber=None,
     con PIN sean deterministas; el PIN real viene del entorno.
     """
     fake = fake_node or node_double.FakeNode()
-    overrides.setdefault("pin_validator", PinValidator(hash_provider=lambda: build_hash_spec(TEST_PIN)))
+    overrides.setdefault("pin_validator", test_pin_validator())
     app = create_app(
         payments=fake.payments_client(),
         transcriber=transcriber,

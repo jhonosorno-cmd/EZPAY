@@ -10,18 +10,16 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from pin import PinValidator, build_hash_spec
-
 import contract
 import fakes
 import node_double
 
-PIN_DE_PRUEBA = "2468"
+PIN_DE_PRUEBA = fakes.TEST_PIN
 PIN_INCORRECTO = "1357"
 
 
 def pin_validator():
-    return PinValidator(hash_provider=lambda: build_hash_spec(PIN_DE_PRUEBA))
+    return fakes.test_pin_validator()
 
 
 class PinFlowTest(unittest.TestCase):
