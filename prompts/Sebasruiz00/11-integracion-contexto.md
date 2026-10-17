@@ -10,6 +10,21 @@ Texto literal del prompt:
 
 Empieza por el 1
 
+
+## Mensajes posteriores del mismo tema (literales, en orden)
+
+**Pregunta previa que dio origen a este tema:**
+
+````text
+Con que se sigue?
+````
+
+**Aprobación del Paso 1 (pruebas y plan, con los commits en el PR #4):**
+
+````text
+Si
+````
+
 ---
 
-Registro: 2026-10-16 18:54 (hora de guardado) · Claude Code, Claude Opus 5.5 (`claude-opus-5-5`) · Origen: `to_dict()` en `api/voice/contacts.py` e `api/voice/intents.py`, "o" en `intents.py`, `PAYMENT_PENDING` en `api/voice/phrases.py`, `api/tests/voice/test_context_shapes.py` y cambios en `test_phrases.py` y `test_intents.py`.
+Registro: 2026-10-16 18:54 (hora de guardado) · Claude Code, Claude Opus 5.5 (`claude-opus-5-5`) · Origen: `to_dict()` en `api/voice/contacts.py` e `api/voice/intents.py`, "o" en `intents.py`, `PAYMENT_PENDING` en `api/voice/phrases.py`, `api/tests/voice/test_context_shapes.py` y cambios en `test_phrases.py` y `test_intents.py`. Aprobaciones y decisiones agregadas el 2026-10-16 19:15 (regla de registro por tema, ver `14-resumen-y-registro-por-tema.md`).

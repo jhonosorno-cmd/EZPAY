@@ -61,6 +61,15 @@ esos archivos y de `git commit`; no hagas push.
 Son las ~15:50. Dime al inicio de cada Paso 1 cuánto estimas que tardará la capability completa. El
 siguiente hito es H2 a las 17:30.
 
+
+## Mensajes posteriores del mismo tema (literales, en orden)
+
+**Decisión sobre el mensaje 06 que no llegó (opción b: no existe):**
+
+````text
+B
+````
+
 ---
 
-Registro: 2026-10-16 15:59 (hora de guardado) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) · Origen: ritmo de trabajo de las capabilities `reply-classification`, `contact-resolution`, `intent-extraction` y `say`; en este turno, las pruebas H-1 a H-6 en `api/tests/voice/test_amounts.py`.
+Registro: 2026-10-16 15:59 (hora de guardado) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) · Origen: ritmo de trabajo de las capabilities `reply-classification`, `contact-resolution`, `intent-extraction` y `say`; en este turno, las pruebas H-1 a H-6 en `api/tests/voice/test_amounts.py`. Aprobaciones y decisiones agregadas el 2026-10-16 19:15 (regla de registro por tema, ver `14-resumen-y-registro-por-tema.md`).

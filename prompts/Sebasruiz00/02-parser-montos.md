@@ -59,6 +59,33 @@ mensaje claro (es un error de configuración, no de usuario).
 5. Después de eso, propón `contact-resolution` con tu lista de casos límite. La pregunta sobre la
    medida de similitud la respondo en ese momento.
 
+
+## Mensajes posteriores del mismo tema (literales, en orden)
+
+**Aprobación del diff de `amounts.py`:**
+
+````text
+Si
+````
+
+**La misma aprobación, reenviada después de que la respuesta anterior se cortó:**
+
+````text
+Si
+````
+
+**Aprobación de las filas de `AI_USAGE.md`:**
+
+````text
+Si, acabo de revisar y si apruebo
+````
+
+**Revisión humana de `amounts.py` y `test_amounts.py`:**
+
+````text
+Si revise funciona bien
+````
+
 ---
 
-Registro: 2026-10-16 15:36 (hora de guardado) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) · Origen: `api/voice/amounts.py` y `api/tests/voice/test_amounts.py` (H-1 a H-6, femeninos, H-8 a H-10), escritos y verificados el 2026-10-16.
+Registro: 2026-10-16 15:36 (hora de guardado) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) · Origen: `api/voice/amounts.py` y `api/tests/voice/test_amounts.py` (H-1 a H-6, femeninos, H-8 a H-10), escritos y verificados el 2026-10-16. Aprobaciones y decisiones agregadas el 2026-10-16 19:15 (regla de registro por tema, ver `14-resumen-y-registro-por-tema.md`).

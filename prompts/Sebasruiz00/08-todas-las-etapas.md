@@ -46,6 +46,15 @@ claramente como reemplazable por la de Pagos. No inventes wallets reales.
 - `AI_USAGE.md` actualizado con una fila por archivo; revisión humana "Pendiente" salvo que yo diga otra cosa.
 - Si algo te bloquea o el spec contradice un documento, para y pregúntame.
 
+
+## Mensajes posteriores del mismo tema (literales, en orden)
+
+**Aprobación de los cuatro Pasos 1 (con todas las recomendaciones):**
+
+````text
+Si, puedes continuar
+````
+
 ---
 
-Registro: 2026-10-16 16:59 (hora de guardado) · Claude Code, Claude Opus 5.5 (`claude-opus-5-5`) · Origen: Paso 1 y Paso 2 de `reply-classification` + `say`, `contact-resolution` e `intent-extraction`: `api/voice/{text,config,replies,phrases,contacts,intents}.py`, `api/voice/agenda_provisional.json`, `api/voice/RESULTADOS.md` y `api/tests/voice/test_{replies,phrases,contacts,intents,package}.py`.
+Registro: 2026-10-16 16:59 (hora de guardado) · Claude Code, Claude Opus 5.5 (`claude-opus-5-5`) · Origen: Paso 1 y Paso 2 de `reply-classification` + `say`, `contact-resolution` e `intent-extraction`: `api/voice/{text,config,replies,phrases,contacts,intents}.py`, `api/voice/agenda_provisional.json`, `api/voice/RESULTADOS.md` y `api/tests/voice/test_{replies,phrases,contacts,intents,package}.py`. Aprobaciones y decisiones agregadas el 2026-10-16 19:15 (regla de registro por tema, ver `14-resumen-y-registro-por-tema.md`).
