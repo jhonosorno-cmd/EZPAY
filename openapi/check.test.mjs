@@ -1,6 +1,6 @@
-// Acceptance checks for the Prism mocks of Contracts A and B (v1 + v1.1).
+// Acceptance checks for the Prism mocks of Contracts A and B (v1 + v1.1 + v1.2).
 // Every expectation below comes from docs/contratos-http-v1.md and
-// docs/contratos-cambios-propuestos-v1.1.md, not from the spec files.
+// docs/contratos-cambios-propuestos-v1.1.md and docs/contratos-cambios-v1.2.md, not from the spec files.
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -110,6 +110,7 @@ describe('Contract A (Python -> Node, /v1)', () => {
     for (const [status, code, example] of [
       [400, 'INVALID_AMOUNT', 'invalid-amount'],
       [400, 'INVALID_WALLET', 'invalid-wallet'],
+      [400, 'INVALID_REQUEST', 'invalid-request'], // v1.2, AB-1
       [502, 'UPSTREAM_ERROR', 'upstream-error'],
       [500, 'INTERNAL_ERROR', 'internal-error'],
     ]) {
@@ -315,6 +316,10 @@ describe('Contract B (Frontend -> Python, /api)', () => {
       assert.equal(r.status, 201)
       assert.equal(typeof r.body.interactUrl, 'string')
     })
+    test('POST 400 INVALID_REQUEST (v1.2, AB-1)', async () => {
+      const r = await B('POST', '/api/budget', { json: {}, prefer: 'code=400, example=invalid-request' })
+      expectError(r, 400, 'INVALID_REQUEST')
+    })
     test('GET 200 status, limit, spent, remaining', async () => {
       const r = await B('GET', '/api/budget')
       assert.equal(r.status, 200)
@@ -336,6 +341,10 @@ describe('Contract B (Frontend -> Python, /api)', () => {
       })
       assert.equal(r.status, 200)
       assert.equal(r.body.state, 'REJECTED')
+    })
+    test('400 INVALID_REQUEST (v1.2, AB-1)', async () => {
+      const r = await B('POST', '/api/grant-callback', { json: {}, prefer: 'code=400, example=invalid-request' })
+      expectError(r, 400, 'INVALID_REQUEST')
     })
     test('empty body is accepted (all fields optional)', async () => {
       const r = await B('POST', '/api/grant-callback', { json: {} })

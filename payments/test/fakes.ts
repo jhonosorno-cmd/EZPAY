@@ -59,7 +59,11 @@ export class FakeOp implements OpenPaymentsPort {
     this.staleToken ??= t.value
     return t
   }
-  async cancelGrant() { this.track('cancelGrant') }
+  async cancelGrant(a: { continueUri: string; continueToken: string }) {
+    this.track('cancelGrant')
+    this.cancelArgs = a
+  }
+  cancelArgs: { continueUri: string; continueToken: string } | null = null
   async rotateToken() {
     this.track('rotateToken')
     if (this.rotateFails) throw new OpError('unauthorized')

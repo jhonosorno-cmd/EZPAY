@@ -190,9 +190,9 @@ export class PaymentsService {
     if (!g) throw err(404, 'GRANT_NOT_FOUND')
     if (g.status === 'EXPIRED') return
     this.store.updateGrant(id, { status: 'EXPIRED' }) // aunque el cancel falle, no se usa de nuevo
-    if (g.accessToken && g.manageUrl) {
+    if (g.continueUri && g.continueToken) {
       try {
-        await this.op.cancelGrant({ manageUrl: g.manageUrl, accessToken: g.accessToken })
+        await this.op.cancelGrant({ continueUri: g.continueUri, continueToken: g.continueToken })
       } catch {
         throw err(502, 'UPSTREAM_ERROR', 'could not cancel the grant in Open Payments')
       }

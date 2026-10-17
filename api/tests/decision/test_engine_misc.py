@@ -144,8 +144,8 @@ class LaDecisionIncluyeUnReason(unittest.TestCase):
         for ctx in _battery():
             self.assertEqual(decide(ctx).reason, decide(ctx).reason)
 
-    def test_el_enum_es_cerrado_de_28_valores(self):
-        self.assertEqual(len(list(Reason)), 28)
+    def test_el_enum_es_cerrado_de_32_valores(self):
+        self.assertEqual(len(list(Reason)), 32)
 
 
 class ElMotorNoObedeceAlLLM(unittest.TestCase):

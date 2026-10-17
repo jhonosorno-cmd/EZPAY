@@ -18,9 +18,14 @@ no tienen contra qué verificarse.
 - Decisiones de ML 2 que materializa (`docs/decisiones.md`, 16 oct): D1 (función pura), D2 (tabla
   ordenada; el PIN se suma al "sí"), D3 (el texto y el usuario no enrolado piden PIN), D4 (solo se
   verifica la voz del comando), D5 (diseño del PIN) y D9 (`previouslyPaid`).
-- Quedan fuera de H1 (cambio posterior de ML 2): `speaker-verification` (SpeechBrain, umbral 0.45
-  provisional) y `voice-enrollment` (`/enrollment`, `GET /enrollment`, errores de B-5).
-- Código en `api/`: el motor (`api/decision/`), el PIN (`api/pin/`), sus scripts (`api/scripts/`), `api/.env.example` y las pruebas de los escenarios (`api/tests/decision/`, `api/tests/pin/`), escritas antes del código.
+- Dos capabilities nuevas para H2:
+  - `speaker-verification`: `embed` y `verify` con SpeechBrain (ECAPA) en CPU dentro del backend;
+    `verify` produce el `context.voice` del motor, con umbral configurable (0.45 provisional), falla
+    cerrada (`NOT_AVAILABLE`) y sin audio ni puntajes en logs.
+  - `voice-enrollment`: huella a partir de 3 muestras con un solo consentimiento (huella y
+    transcripción externa), errores de B-5 en orden fijo, huella persistida fuera de git,
+    re-enrolamiento atómico y `GET /enrollment`.
+- Código en `api/`: el motor (`api/decision/`), el PIN (`api/pin/`), la verificación de hablante y el enrolamiento (`api/speaker/`), sus scripts (`api/scripts/`, incluido `delete_voiceprint.py`), `api/.env.example` y las pruebas de los escenarios (`api/tests/decision/`, `api/tests/pin/`, `api/tests/speaker/`), escritas antes del código.
 
 ## Capabilities
 
@@ -29,6 +34,8 @@ no tienen contra qué verificarse.
 - `decision-engine`: decisión determinística de cada turno de un pago, con `reason` para elegir la
   situación de `say` del catálogo de Voz.
 - `pin-validation`: validación del PIN dentro del backend Python, con contadores y bloqueo.
+- `speaker-verification`: verificación de hablante del comando de voz contra la huella (H2).
+- `voice-enrollment`: registro, consulta y borrado de la huella de voz con consentimiento (H2).
 
 ### Modified Capabilities
 

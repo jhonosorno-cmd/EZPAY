@@ -1,9 +1,9 @@
 ## 1. Cierre de decisiones abiertas
 
-- [ ] 1.1 Fijar `highAmountThreshold` con los experimentos X-2 y X-4 (por defecto `null`, desactivado)
+- [x] 1.1 Fijar `highAmountThreshold` con los experimentos (100.000 COP, X-4 del 17 oct)
 - [ ] 1.2 Voz propone `minIntentConfidence` y `minTranscriptConfidence` tras su batería (por defecto `null`)
 - [ ] 1.3 Comunicar a Pagos la regla 6b (aviso de pago no confirmado pasada la ventana) y confirmar el texto de su plantilla
-- [ ] 1.4 H2: persistir el contador global de fallos del PIN (en H1 vive en la memoria del proceso)
+- [x] 1.4 Persistir el contador global de fallos del PIN (`EZPAY_PIN_DATA_DIR`, por defecto `api/.data/pin/`)
 
 ## 2. H1 (viernes 14:00)
 
@@ -15,3 +15,19 @@
 ## 3. Validación
 
 - [x] 3.1 `openspec validate add-decision-engine --strict`
+
+## 4. H2 (verificación de hablante y enrolamiento)
+
+- [x] 4.1 Experimento X-3: huella como promedio o como máximo por muestra
+- [x] 4.2 Experimento X-2: medir `minVerifySeconds` y la duración de la frase de la demo
+- [x] 4.3 Verificar que el modelo carga sin internet y que una verificación responde en menos de 1 s
+- [x] 4.4 Pruebas de los escenarios de `speaker-verification` y `voice-enrollment`, escritas antes del código
+- [x] 4.5 Implementar `embed`, `verify`, enrolamiento, persistencia y borrado de la huella en `api/`
+- [ ] 4.6 H3: recalibrar el umbral y el corte de consistencia con el micrófono de solapa
+
+## 5. Confirmación con desafío de voz (decidida el 17 oct)
+
+- [x] 5.1 Spec del desafío en `decision-engine` y `speaker-verification` (entrada `confirmation`, reglas con los dos puntajes, 4 reasons nuevos)
+- [x] 5.2 Pruebas de los escenarios del desafío, escritas antes del código
+- [x] 5.3 Implementar la fase `CONFIRMATION` en modo `CHALLENGE`, el PIN tras el desafío y las situaciones en `say_map.py`
+- [ ] 5.4 Voz: 4 situaciones nuevas, banco de frases y `phrase_match`; orquestador: armar `confirmation` y verificar la respuesta
