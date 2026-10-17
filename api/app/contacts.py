@@ -173,6 +173,9 @@ class ContactBook:
     def _save(self) -> None:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
+            ignore = self._path.parent / ".gitignore"  # la agenda nunca va al repo público
+            if not ignore.exists():
+                ignore.write_text("*\n", encoding="utf-8")
             tmp = self._path.with_suffix(".tmp")
             tmp.write_text(json.dumps({"contacts": self._rows}, ensure_ascii=False, indent=1), encoding="utf-8")
             tmp.replace(self._path)

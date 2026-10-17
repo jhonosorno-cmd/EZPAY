@@ -128,7 +128,7 @@ class WalletState:
     def save(self) -> None:
         try:
             self._file.parent.mkdir(parents=True, exist_ok=True)
-            ignore = self._file.parent.parent / ".gitignore"
+            ignore = self._file.parent / ".gitignore"
             if not ignore.exists():
                 ignore.write_text("*\n", encoding="utf-8")
             tmp = self._file.with_suffix(".tmp")
