@@ -90,26 +90,31 @@ def agregar_fila(ruta: Path, *, quien: str, ruido: str, numero: int, frase: Fras
                                                 resultado.veredicto)])
 
 
-def seleccionar_frases(texto: str) -> list[tuple[int, Frase]]:
-    """`"1,3,5-7"` -> [(1, f1), (3, f3), (5, f5), ...]; vacío = todas. El número es el de la lista completa."""
+def numeros_elegidos(texto: str, total: int) -> list[int]:
+    """`"1,3,5-7"` -> [1, 3, 5, 6, 7]; vacío = del 1 al total. Sin repetidos; fuera de rango es ValueError."""
     if not texto.strip():
-        return list(enumerate(FRASES, 1))
+        return list(range(1, total + 1))
     numeros: list[int] = []
     for parte in texto.split(","):
         parte = parte.strip()
         try:
             if "-" in parte:
                 desde, hasta = (int(x) for x in parte.split("-"))
-                rango = list(range(desde, hasta + 1))
                 if desde > hasta:
                     raise ValueError
+                rango = list(range(desde, hasta + 1))
             else:
                 rango = [int(parte)]
         except ValueError:
-            raise ValueError(f"frases inválidas: {parte!r}; usa números del 1 al {len(FRASES)}, como 1,3,5-7") from None
+            raise ValueError(f"frases inválidas: {parte!r}; usa números del 1 al {total}, como 1,3,5-7") from None
         for n in rango:
-            if not 1 <= n <= len(FRASES):
-                raise ValueError(f"la frase {n} no existe; hay de 1 a {len(FRASES)}")
+            if not 1 <= n <= total:
+                raise ValueError(f"la frase {n} no existe; hay de 1 a {total}")
             if n not in numeros:
                 numeros.append(n)
-    return [(n, FRASES[n - 1]) for n in numeros]
+    return numeros
+
+
+def seleccionar_frases(texto: str) -> list[tuple[int, Frase]]:
+    """Frases elegidas con su número en la lista completa; vacío = todas."""
+    return [(n, FRASES[n - 1]) for n in numeros_elegidos(texto, len(FRASES))]
