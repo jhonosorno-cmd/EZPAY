@@ -82,13 +82,13 @@ Además del `decision`, el motor SHALL devolver un `reason`: un código estable 
 - **THEN** ambas invocaciones devuelven el mismo `{decision, reason}`
 
 ### Requirement: Cada reason se asocia a una situación del catálogo único de Voz
-Cada `reason` (salvo `CONFIRMED`) SHALL traducirse a una situación del catálogo único de `say` de Voz (`api/voice/phrases.py`, enum `Situation`); el orquestador inserta los valores y llama a `say` de Voz, y el motor MUST NOT generar texto. Un `reason` sin situación es un error de contrato. La tabla `reason` → situación y los textos de las 13 situaciones nuevas están en `design.md`.
+Cada `reason` (salvo `CONFIRMED`) SHALL traducirse a una situación del catálogo único de `say` de Voz (`api/voice/phrases.py`, enum `Situation`); el orquestador inserta los valores y llama a `say` de Voz, y el motor MUST NOT generar texto. Un `reason` sin situación es un error de contrato. La tabla `reason` → situación y los textos de las 17 situaciones nuevas (13 del 16 oct y 4 del desafío de voz) están en `design.md`.
 
 #### Scenario: Todo reason tiene situación (salvo CONFIRMED)
 
 - **GIVEN** cada `reason` del enum cerrado
 - **WHEN** el orquestador arma el `say` del turno traduciendo `reason` ⇒ `Situation`
-- **THEN** cada `reason` tiene una situación del catálogo único de Voz (o sus variantes), salvo `CONFIRMED`, que no tiene `say` propio porque el `say` sale del resultado del pago
+- **THEN** cada `reason` tiene una situación del catálogo único de Voz (o sus variantes), salvo `CONFIRMED` y `CONFIRMED_WITH_PIN`, que no tienen `say` propio porque el `say` sale del resultado del pago
 - **AND** un `reason` sin situación es un error de contrato
 - **AND** ningún `say` lo genera el LLM ni contiene dígitos del PIN
 
@@ -96,7 +96,7 @@ Cada `reason` (salvo `CONFIRMED`) SHALL traducirse a una situación del catálog
 
 - **GIVEN** cualquier turno con `Decision` del motor
 - **WHEN** el orquestador traduce el `reason` a una `Situation`
-- **THEN** la traducción usa solo los campos del `context` que eligen la variante (p. ej. `quote.exceedsRemaining`, el número de `options` de la resolución, `intent.amountError`) y ningún otro dato del request
+- **THEN** la traducción usa solo los campos del `context` que eligen la variante (p. ej. `quote.exceedsRemaining`, el número de `options` de la resolución, `intent.amountError`, `confirmation.mode`) y ningún otro dato del request
 - **AND** los valores que inserta el `say` (montos con `format_amount` sin float, la palabra de la moneda de la configuración de Voz) los aporta el orquestador, nunca el motor
 
 #### Scenario: Un reason sin situación es error de contrato
@@ -358,7 +358,7 @@ En fase `COMMAND` el motor SHALL evaluar en orden las reglas 1, 2, 2b, 3, 4, 5, 
 - **AND** con `reply == "YES"` el motor devuelve `REQUIRE_AUTH` con `reason: CONFIRMED_NEEDS_WALLET_AUTH` para el grant puntual del exceso
 
 ### Requirement: Tabla de la fase PIN
-En fase `PIN` el motor SHALL decidir en orden: PIN bloqueado → `REJECT`; PIN correcto → `ASK_CONFIRM` (el PIN se suma al "sí", no lo reemplaza); incorrecto con menos de 3 fallos → `ASK_PIN`; con 3 fallos o más → `REJECT`; formato inválido o resultado nulo → `ASK_PIN`. El motor MUST NOT volver a evaluar la tabla de `COMMAND`. Detalle en `design.md`.
+En fase `PIN` el motor SHALL decidir en orden: PIN bloqueado → `REJECT`; PIN correcto → `ASK_CONFIRM` (el PIN se suma al "sí", no lo reemplaza), salvo tras un desafío con frase que coincide → `PAY`/`CONFIRMED_WITH_PIN` (o `REQUIRE_AUTH` con exceso); incorrecto con menos de 3 fallos → `ASK_PIN`; con 3 fallos o más → `REJECT`; formato inválido o resultado nulo → `ASK_PIN`. El motor MUST NOT volver a evaluar la tabla de `COMMAND`. Detalle en `design.md`.
 
 #### Scenario: PIN correcto no reemplaza el "sí"
 
@@ -395,7 +395,7 @@ En fase `PIN` el motor SHALL decidir en orden: PIN bloqueado → `REJECT`; PIN c
 - **AND** `pin.sessionFailures` no aumenta
 
 ### Requirement: Tabla de la fase CONFIRMATION
-En fase `CONFIRMATION` el motor SHALL decidir: "sí" → `REQUIRE_AUTH` si la quote excede el presupuesto, si no `PAY`; "no" → `REJECT`; respuesta poco clara o ausente → `ASK_CONFIRM` la primera vez y `REJECT` desde la segunda. El motor MUST NOT verificar la voz del "sí" (D4). Detalle en `design.md`.
+En fase `CONFIRMATION` con `confirmation.mode == "REPLY"` (o `confirmation` nulo) el motor SHALL decidir: "sí" → `REQUIRE_AUTH` si la quote excede el presupuesto, si no `PAY`; "no" → `REJECT`; respuesta poco clara o ausente → `ASK_CONFIRM` la primera vez y `REJECT` desde la segunda. El motor MUST NOT verificar la voz del "sí" (D4). Detalle en `design.md`.
 
 #### Scenario: Sí dentro del presupuesto
 
@@ -437,8 +437,85 @@ En fase `CONFIRMATION` el motor SHALL decidir: "sí" → `REQUIRE_AUTH` si la qu
 - **WHEN** el motor decide en fase `CONFIRMATION`
 - **THEN** la decisión no depende de una nueva verificación de voz del "sí" (D4)
 
+### Requirement: Confirmación con desafío de voz
+
+Con `confirmation.mode == "CHALLENGE"` el motor SHALL decidir en orden: 1) `reply == "NO"` ⇒ `REJECT`/`USER_DECLINED`; 2) `phraseScore >= challengePhraseMatchMin` y voz `VERIFIED` ⇒ exceso `REQUIRE_AUTH`/`CONFIRMED_NEEDS_WALLET_AUTH`, si no `PAY`/`CONFIRMED`;
+3) frase que coincide y voz no verificada ⇒ `ASK_PIN`/`CHALLENGE_VOICE_NOT_VERIFIED`; 4) frase que no coincide con `challengeAttempts == 0` ⇒ `ASK_CONFIRM`/`CHALLENGE_RETRY`; 5) resto ⇒ `REJECT`/`CHALLENGE_FAILED`.
+
+#### Scenario: Desafío correcto con voz verificada
+
+- **GIVEN** fase `CONFIRMATION` con `confirmation.mode == "CHALLENGE"`, `phraseScore` 1.0 (≥ 0.80) y `confirmation.voice.status == "VERIFIED"`
+- **WHEN** el motor decide
+- **THEN** devuelve `PAY` con `reason: CONFIRMED` (o `REQUIRE_AUTH`/`CONFIRMED_NEEDS_WALLET_AUTH` si `quote.exceedsRemaining == true`)
+
+#### Scenario: En el borde del corte de la frase
+
+- **GIVEN** fase `CONFIRMATION` en modo `CHALLENGE` con `config.challengePhraseMatchMin == 0.80` y `phraseScore == 0.80`
+- **WHEN** el motor decide
+- **THEN** la frase cuenta como coincidente: `phraseScore >= challengePhraseMatchMin` incluye el borde
+
+#### Scenario: Frase correcta y voz de otra persona
+
+- **GIVEN** fase `CONFIRMATION` en modo `CHALLENGE` con `phraseScore` sobre el corte y `confirmation.voice.status == "BELOW_THRESHOLD"` (una grabación con otra frase, o un impostor que repite bien)
+- **WHEN** el motor decide
+- **THEN** devuelve `ASK_PIN` con `reason: CHALLENGE_VOICE_NOT_VERIFIED`
+- **AND** en fase `PIN` con `pin.result == "OK"` y la frase ya coincidente devuelve `PAY` con `reason: CONFIRMED_WITH_PIN` (o `REQUIRE_AUTH`/`CONFIRMED_NEEDS_WALLET_AUTH` con exceso)
+
+#### Scenario: Frase incorrecta una vez
+
+- **GIVEN** fase `CONFIRMATION` en modo `CHALLENGE` con `phraseScore` bajo el corte y `challengeAttempts == 0`
+- **WHEN** el motor decide
+- **THEN** devuelve `ASK_CONFIRM` con `reason: CHALLENGE_RETRY` y el orquestador repite el desafío con otra frase del banco
+
+#### Scenario: Frase incorrecta dos veces
+
+- **GIVEN** fase `CONFIRMATION` en modo `CHALLENGE` con `phraseScore` bajo el corte y `challengeAttempts >= 1`
+- **WHEN** el motor decide
+- **THEN** devuelve `REJECT` con `reason: CHALLENGE_FAILED` y no se paga
+
+#### Scenario: "No" durante el desafío
+
+- **GIVEN** fase `CONFIRMATION` en modo `CHALLENGE` con `reply == "NO"`
+- **WHEN** el motor decide
+- **THEN** devuelve `REJECT` con `reason: USER_DECLINED` (primera regla, antes de evaluar la frase)
+
+#### Scenario: Grabación reproducida con una frase vieja
+
+- **GIVEN** un atacante reproduce una grabación (otra frase del banco o del registro) durante el desafío
+- **WHEN** la transcripción no coincide con la frase pedida (`phraseScore` bajo el corte o `null`)
+- **THEN** con `challengeAttempts == 0` el motor devuelve `ASK_CONFIRM`/`CHALLENGE_RETRY` (frase nueva: 1 en 15 o menos de acertar al azar) y con `challengeAttempts >= 1` devuelve `REJECT`/`CHALLENGE_FAILED`
+
+#### Scenario: Comando por texto confirma como hoy
+
+- **GIVEN** un pago que pasó por PIN (comando por texto, voz no verificada, destinatario nuevo o monto alto) con `config.confirmationChallenge` activa
+- **WHEN** el orquestador arma el `context` de la confirmación
+- **THEN** `confirmation.mode == "REPLY"` (el PIN ya es el segundo factor; no hay ciclos de PIN) y la fase `CONFIRMATION` decide con la tabla de `REPLY`: "sí" como hoy
+
+#### Scenario: Opción apagada
+
+- **GIVEN** `config.confirmationChallenge == false` (por defecto)
+- **WHEN** el motor decide en cualquier fase
+- **THEN** todo funciona como hoy: `confirmation.mode == "REPLY"` y valen las tablas de `COMMAND`, `PIN` y `CONFIRMATION` anteriores al desafío
+
+Notas **[DECIDIDO 2026-10-17, presencial]**:
+
+- `mode == "CHALLENGE"` solo lo arma el orquestador con `config.confirmationChallenge` activa y el
+comando verificado por voz sin PIN (`voice.status == "VERIFIED"` en el comando). Si el pago pasó
+por PIN (texto, voz no verificada, destinatario nuevo, monto alto), `mode == "REPLY"`: el PIN ya es
+el segundo factor y se confirma con "sí" como hoy (no hay ciclos de PIN).
+- `phraseScore >= challengePhraseMatchMin` es el borde inclusivo: exactamente el corte (0.80 por
+defecto) coincide. La coincidencia la calcula Voz con `phrase_match` sobre la transcripción
+normalizada (sin tildes, mayúsculas ni signos; al menos el 80 % de las palabras de la frase en
+orden); `null` si no hubo respuesta por voz.
+- En la regla 4 el orquestador repite el desafío con **otra frase del banco** (nunca la misma en
+confirmaciones seguidas) y suma `challengeAttempts`; en la regla 3 pide PIN.
+- La frase del banco (30 o más frases de 6 a 9 palabras, sin nombres ni números ni palabras de
+afirmación/negación/pago/monto) vive en el catálogo de Voz; el orquestador la elige al azar, nunca
+el LLM; el `say` (`CONFIRM_CHALLENGE`/`CONFIRM_CHALLENGE_OVERRUN`) lleva monto y destinatario antes
+de la frase (SEG-2/B-6).
+
 ### Requirement: El motor no obedece al LLM
-La única regla que emite `PAY` SHALL exigir la fase `CONFIRMATION` y `reply == "YES"`. Ningún contenido del comando o de la respuesta MUST producir `PAY` por sí mismo (SEG-3).
+Las únicas reglas que emiten `PAY` SHALL exigir una confirmación posterior al comando: `reply == "YES"` en modo `REPLY`, o la frase del desafío que coincide con voz `VERIFIED` o PIN correcto en modo `CHALLENGE`. Ningún contenido del comando o de la respuesta MUST producir `PAY` por sí mismo (SEG-3).
 
 #### Scenario: Intento de instruir al LLM
 

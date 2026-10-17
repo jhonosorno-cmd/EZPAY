@@ -4,8 +4,9 @@
 
 Clasificar la respuesta del usuario a una pregunta del sistema como `YES`, `NO` o `UNCLEAR`, de forma
 determinística, para que nada se ejecute sin un "sí" claro. Origen: Spec general §4 (SEG-2, SEG-3) y
-la revisión del rol Voz del 13 de octubre (espacio de trabajo previo) (V-04, V-13, V-14, V-24). Depende de la decisión D5
-propuesta al equipo; la lista cerrada de afirmativos la fija el equipo.
+la revisión del rol Voz del 13 de octubre (espacio de trabajo previo) (V-04, V-13, V-14, V-24). La
+lista cerrada de afirmativos está [DECIDIDO por Voz, 2026-10-16; ratificación del equipo pendiente]
+(D5) y se cita en el requisito "Lista cerrada de afirmativos y negaciones".
 
 ## ADDED Requirements
 
@@ -24,6 +25,24 @@ La respuesta SHALL clasificarse como `YES`, `NO` o `UNCLEAR` mediante reglas det
 #### Scenario: Sin llamada al LLM
 - **WHEN** se clasifica cualquier respuesta
 - **THEN** no se hace ninguna llamada al LLM
+
+### Requirement: Lista cerrada de afirmativos y negaciones
+La clasificación SHALL usar la lista cerrada de `contrato-voz.md` §8 tal como está implementada (`api/voice/replies.py`) [DECIDIDO por Voz, 2026-10-16; ratificación del equipo pendiente]. Afirmaciones: "si", "confirmo", "dale", "claro que sí", "sí claro", "sí por favor", "de acuerdo". Rellenos permitidos: "por favor", "gracias". Excluidas: "claro", "bueno", "ok", "listo", "ajá", "mmm", "vale", "va". Negaciones: "no", "nada", "cancela", "cancelar", "para", "detente".
+
+#### Scenario: Palabra excluida ("ok")
+- **WHEN** el usuario responde "ok" a la confirmación
+- **THEN** la clasificación es `UNCLEAR`
+- **AND** no se ejecuta el pago
+
+#### Scenario: Palabra excluida ("listo")
+- **WHEN** el usuario responde "listo"
+- **THEN** la clasificación es `UNCLEAR`
+- **AND** no se ejecuta el pago
+
+#### Scenario: Afirmación y negación juntas
+- **WHEN** el usuario responde "sí, no"
+- **THEN** la clasificación es `UNCLEAR`
+- **AND** no se ejecuta el pago
 
 ### Requirement: Todo lo que no sea un sí claro es no
 Una respuesta vacía, dudosa, con ruido o que mezcle afirmación y negación MUST clasificarse `UNCLEAR`, y el sistema MUST NOT ejecutar el pago.

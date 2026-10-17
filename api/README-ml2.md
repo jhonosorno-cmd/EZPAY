@@ -1,16 +1,17 @@
-# Motor de decisión, PIN y parser de contextos (ML 2)
+# Motor de decisión, PIN, verificación de hablante y enrolamiento (ML 2)
 
 Piezas de ML 2 para el backend de EZPAY (Hackathon Open Payments 2026),
 librería estándar de Python y pruebas con `unittest`. Fuente de verdad:
-`openspec/changes/add-decision-engine/specs/{decision-engine,pin-validation}/spec.md`
+`openspec/changes/add-decision-engine/specs/{decision-engine,pin-validation,speaker-verification,voice-enrollment}/spec.md`
 y su `design.md`. La estructura de esta carpeta es idéntica a la de `api/`:
-paquetes `decision/` y `pin/` en la raíz, pruebas en `tests/<módulo>/` **sin
-`__init__.py`** (nombres de archivos de prueba únicos en todo el árbol, para
-que `unittest` y `pytest` descubran sin colisiones con los paquetes).
+paquetes `decision/`, `pin/` y `speaker/` en la raíz, pruebas en
+`tests/<módulo>/` **sin `__init__.py`** (nombres de archivos de prueba únicos
+en todo el árbol, para que `unittest` y `pytest` descubran sin colisiones con
+los paquetes).
 
 ```
 decision/
-  models.py        # Context, Decision (to_dict), Reason (enum cerrado, 28), Amount (CONV-1),
+  models.py        # Context, Decision (to_dict), Reason (enum cerrado, 32), Amount (CONV-1),
                    # InvalidContextError, parse_instant (ISO 8601 fail-closed)
   engine.py        # decide(context) -> Decision: función pura; tablas ordenadas de
                    # las fases COMMAND, PIN y CONFIRMATION (D1, D2)
@@ -21,11 +22,24 @@ decision/
 pin/
   pin.py           # PinValidator (verify, reset_lock), verify_pin, reset_pin_lock,
                    # is_valid_pin, build_hash_spec
+  store.py         # estado global persistido {"globalFailures", "locked"} en
+                   # EZPAY_PIN_DATA_DIR (o api/.data/pin/); nunca PIN/hash/sesiones
 scripts/
-  make_pin_hash.py     # alta del PIN: getpass -> EZPAY_PIN_HASH para .env
-  reset_pin_lock.py    # reinicio del bloqueo (H1: contador en memoria del proceso)
+  make_pin_hash.py         # alta del PIN: getpass -> EZPAY_PIN_HASH para .env
+  reset_pin_lock.py        # reinicio del estado PERSISTIDO del bloqueo (y reparación
+                           # de archivo corrupto); el backend en marcha lo recarga al reiniciar
+  delete_voiceprint.py     # borra la huella del hablante y el consentimiento (PRIV-3)
+speaker/
+  audio.py         # trim_silence (calibración 15 oct: frame=320, pad=0.25) y duracion_voz_util
+  verification.py  # SpeakerVerifier: load() una vez al arrancar; verify(pcm, user) ->
+                   # {"status", "score"} = context.voice del motor; EcapaEmbedder (ECAPA, CPU, offline)
+  enrollment.py    # SpeakerEnrollment.enroll(3 muestras, consent) / status() / delete();
+                   # errores en orden: CONSENT_REQUIRED → SAMPLES_REQUIRED →
+                   # INVALID_AUDIO → INCONSISTENT_SAMPLES
+  store.py         # embeddings + consent.json, NUNCA audio (PRIV-1); .data/ fuera de git
 tests/decision/        # motor y context_io (+ fixtures con las formas reales de Voz y de los mocks)
-tests/pin/             # componente de PIN y script de alta
+tests/pin/             # componente de PIN, script de alta y persistencia del estado global
+tests/speaker/         # verificación, enrolamiento, privacidad e integración con el modelo real
 .env.example           # solo EZPAY_PIN_HASH= con comentario; sin valores reales
 ```
 
@@ -36,7 +50,19 @@ Desde `api/` (raíz de los paquetes):
 ```bash
 PYTHONPATH=. python -m unittest discover -s tests/decision -v
 PYTHONPATH=. python -m unittest discover -s tests/pin -v
+PYTHONPATH=. python -m unittest discover -s tests/speaker -v
 ```
+
+Las 2 pruebas de integración (`tests/speaker/test_speaker_modelo_real.py`)
+necesitan los pesos locales de ECAPA y corren con:
+
+```bash
+EZPAY_SPEAKER_MODEL_DIR=../Pruebas\ ML2/pretrained_models/spkrec-ecapa-voxceleb \
+  python -m unittest discover -s tests/speaker -p "test_speaker_modelo_real.py" -v
+```
+
+Sin la variable, esas 2 pruebas se saltan (el resto de la suite es falsa y
+liviana, sin modelo).
 
 Variante pytest (descubre ambos directorios con el mismo layout plano):
 
@@ -52,6 +78,12 @@ directorio de pruebas por corrida; `pytest` los toma todos de una vez.
 ```python
 from decision import decide_dict, parse_context, InvalidContextError, say_situation
 from pin import verify_pin, reset_pin_lock
+from speaker import SpeakerVerifier
+from speaker.enrollment import SpeakerEnrollment, EnrollmentError
+
+# 0. al arrancar el backend: el modelo carga UNA vez (el primer comando no espera)
+verifier = SpeakerVerifier()
+verifier.load()  # falla la carga ⇒ todo verify da NOT_AVAILABLE y se sigue por PIN
 
 # 1. turno de comando: el orquestador arma el dict del context (design.md,
 #    claves camelCase) con lo que le entregan Voz y Pagos
@@ -59,11 +91,26 @@ result = decide_dict(data)  # -> {"decision": "ASK_PIN", "reason": "VOICE_NOT_VE
 
 # 2. turno de PIN: el resultado de verify_pin entra al context (context.pin)
 result = verify_pin(pin, session_id)  # PinResult(result, sessionFailures, remaining, locked)
-reset_pin_lock()                       # levanta el bloqueo global (script o ruta de admin)
+reset_pin_lock()                       # levanta el bloqueo global (ruta de admin del
+                                       # orquestador) y PERSISTE el estado limpio
 
 # 3. qué dice el sistema: el único catálogo de textos es el de Voz
 nombre = say_situation(decision, context)  # -> "PIN_KEYBOARD", "CONFIRM", None (CONFIRMED)...
 voice.phrases.say(voice.phrases.Situation(nombre), **params_del_turno)
+
+# 4. turno de verificación de hablante: context.voice entra al context
+verifier.verify(pcm, user="usuario")  # {"status": "VERIFIED"|"BELOW_THRESHOLD"|"NOT_AVAILABLE", "score"}
+
+# 5. confirmación (B11): el orquestador arma el modo (REPLY o CHALLENGE) y Voz
+#    el phraseScore; el motor solo lee confirmation.mode
+from decision import Confirmation, ConfirmationMode
+confirmation = Confirmation(mode="CHALLENGE", phrase_score=0.93,
+                            voice=Voice(status="VERIFIED", score=0.78), challenge_attempts=0)
+#    ... y lo manda dentro del dict del context (claves camelCase:
+#    {"mode": "CHALLENGE", "phraseScore": 0.93, "voice": {...}, "challengeAttempts": 0})
+
+# 6. enrolamiento (POST /api/enrollment del Contrato B): 3 muestras, consentimiento explícito
+SpeakerEnrollment(verifier).enroll(samples, consent=True)  # {"enrolled": True} o 400 con code
 ```
 
 - **`decide_dict` / `parse_context`**: fail-closed. Cualquier desviación del
@@ -76,21 +123,108 @@ voice.phrases.say(voice.phrases.Situation(nombre), **params_del_turno)
   trata `InvalidContextError` como **error interno: no se paga**.
 - **`verify_pin`**: nunca devuelve `OK` sin `EZPAY_PIN_HASH` en `.env` (falla
   cerrado). El PIN no sale de Python: no va a logs, ni a `error.message`, ni
-  fuera del backend.
+  fuera del backend. H2: el contador global y el bloqueo **persisten** en
+  `{"globalFailures", "locked"}` (JSON) bajo `EZPAY_PIN_DATA_DIR` — por
+  defecto `api/.data/pin/`, fuera de git — así que un reinicio del backend
+  conserva los 4 fallos previos y el 5.º bloquea, y el bloqueo sobrevive al
+  reinicio. Archivo ilegible o corrupto ⇒ falla cerrado: el validador arranca
+  bloqueado; `python scripts/reset_pin_lock.py` lo repara (escribe
+  {0, false}; el backend en marcha recarga el estado al reiniciarse). En disco
+  SOLO ese JSON: nunca el PIN, ni el hash, ni contadores de sesión.
 - **`say_situation`**: función pura que traduce `(Decision, Context)` al
   NOMBRE de la situación del catálogo de Voz; los textos viven solo en
   `voice/phrases.py`. `VOICE_SITUATIONS_EXISTING` son las 21 situaciones que
-  `Situation` ya tiene hoy; `VOICE_SITUATIONS_NEW` son las 13 que Voz agregará
-  (once comparten nombre con su `reason`). Devuelve `None` solo para
-  `CONFIRMED` (el `say` sale del resultado del pago). Una variante que necesita
-  la `quote` (`CONFIRM`/`AUTH_OVERRUN`, `PENDING_PAYMENT_UNCONFIRMED*`), el
-  `amountError` o las opciones de resolución y no los tiene levanta
-  `InvalidContextError`: contexto imposible, no se paga.
+  `Situation` ya tiene hoy; `VOICE_SITUATIONS_NEW` son las 17 que Voz agregará
+  (13 del 16 oct + las 4 del desafío de voz, B11). Voz ya agregó `CONFIRM_CHALLENGE`
+  y `CHALLENGE_RETRY`; las 2 de `PENDING_VOZ_SITUATIONS` (`CONFIRM_CHALLENGE_OVERRUN`
+  y `CHALLENGE_FAILED`) todavía NO existen en `Situation` y hay una prueba que vigila
+  quitárselas del set cuando Voz las agregue). Devuelve `None` solo para `CONFIRMED` y
+  `CONFIRMED_WITH_PIN` (el `say` sale del resultado del pago). Una variante que
+  necesita la `quote` (`CONFIRM`/`AUTH_OVERRUN`, `PENDING_PAYMENT_UNCONFIRMED*`,
+  `CONFIRM_CHALLENGE*`), el `amountError` o las opciones de resolución y no los
+  tiene levanta `InvalidContextError`: contexto imposible, no se paga.
 - **Alta del PIN** (una vez, por configuración): `python scripts/make_pin_hash.py`
   lee el PIN con getpass y imprime `EZPAY_PIN_HASH=scrypt$N$r$p$sal_b64$hash_b64`
   para copiar a `.env` (ver `.env.example`). El PIN en claro no queda en ningún
-  archivo del repo. En H1 el contador global vive en la memoria del proceso del
-  backend: reiniciarlo lo resetea (persistencia diferida a H2).
+  archivo del repo. El contador global de fallos y el bloqueo persisten (ver
+  `verify_pin` arriba).
+
+## Confirmación con desafío de voz (B11)
+
+- **El MODO lo decide el orquestador, no el motor**: `config.confirmationChallenge`
+  es una bandera del ORQUESTADOR (por defecto false). El motor NUNCA la evalúa:
+  solo lee `confirmation.mode` del `context`. Con `config.confirmationChallenge`
+  activa y el comando verificado por voz sin PIN, el orquestador arma
+  `confirmation.mode == "CHALLENGE"`; si el pago pasó por PIN (comando por
+  texto, voz no verificada, destinatario nuevo o monto alto), arma
+  `confirmation.mode == "REPLY"` (el PIN ya es el segundo factor: se confirma
+  con "sí" como hoy, sin ciclos de PIN).
+- **Cómo arma el orquestador la `confirmation`** (claves camelCase):
+  `{"mode": "CHALLENGE", "phraseScore": 0.93, "voice": {"status": "VERIFIED", "score": 0.78},
+  "challengeAttempts": 0}`. `phraseScore` lo calcula Voz con `phrase_match` sobre
+  la transcripción normalizada (`null` = no hubo respuesta por voz); `voice` es la
+  verificación de la RESPUESTA (la arma el orquestador con `speaker.verify`; el
+  motor nunca llama a `verify`, D4); `challengeAttempts` lo lleva el orquestador
+  y lo suma cuando repite el desafío con OTRA frase del banco (nunca la misma en
+  confirmaciones seguidas). La frase del banco la elige el orquestador al azar,
+  nunca el LLM. `confirmation` ausente o null ⇒ se decide como hoy (tabla REPLY).
+- **El `say` de la pregunta de confirmación también depende del modo**: `ALL_CHECKS_PASSED`
+  sale en fase COMMAND, antes de que exista una respuesta. Para que `say_situation` elija
+  `CONFIRM_CHALLENGE`/`CONFIRM_CHALLENGE_OVERRUN`, el orquestador decide el modo con esa
+  decisión y pasa a `say_situation` el mismo `context` con
+  `confirmation = {"mode": "CHALLENGE", "phraseScore": null, "voice": null, "challengeAttempts": 0}`;
+  sin `confirmation` sale `CONFIRM`/`AUTH_OVERRUN` ("sí" como hoy).
+- **Reglas en CONFIRMATION con `mode == "CHALLENGE"`** (en orden, gana la primera):
+  1) `reply == "NO"` ⇒ `REJECT`/`USER_DECLINED`; 2) `phraseScore >= challengePhraseMatchMin`
+  (borde inclusivo; 0.80 por defecto) y voz `VERIFIED` ⇒ con exceso
+  `REQUIRE_AUTH`/`CONFIRMED_NEEDS_WALLET_AUTH`, si no `PAY`/`CONFIRMED`;
+  3) frase que coincide y voz no verificada (`BELOW_THRESHOLD`, `NOT_AVAILABLE`
+  o sin voz) ⇒ `ASK_PIN`/`CHALLENGE_VOICE_NOT_VERIFIED`; 4) frase que no coincide
+  con `challengeAttempts == 0` ⇒ `ASK_CONFIRM`/`CHALLENGE_RETRY`; 5) resto ⇒
+  `REJECT`/`CHALLENGE_FAILED`.
+- **Fase PIN tras el desafío**: con `pin.result == "OK"`, modo CHALLENGE y frase
+  que coincide ⇒ `PAY`/`CONFIRMED_WITH_PIN` (o `REQUIRE_AUTH` con exceso): el PIN
+  reemplaza a la voz y el consentimiento ya lo dio la frase. El bloqueo sigue
+  ganando primero, y WRONG / agotado / INVALID_FORMAT / frase que no coincide
+  (⇒ `ASK_CONFIRM`/`PIN_CORRECT`) quedan como hoy.
+- **SEG-3 (el motor no obedece al LLM)**: `PAY` solo sale de (a) CONFIRMATION en
+  modo REPLY con "sí", (b) CONFIRMATION en modo CHALLENGE con frase que coincide
+  y voz `VERIFIED`, o (c) PIN OK tras un desafío con frase que coincide. Hay una
+  prueba de propiedad que barre miles de combinaciones y falla si aparece otro
+  camino.
+
+## Verificación de hablante y enrolamiento (`speaker/`)
+
+- **Umbral y recorte calibrados**: `umbral=0.45` (coseno, `score >= umbral` ⇒
+  VERIFIED, el borde pasa) y `trim_silence(frame=320, pad=0.25)` son el par
+  calibrado el 15 oct; cambiar el recorte exige recalibrar. `min_verify_seconds=2.0`
+  y los límites de enrolamiento (3–15 s) se miden **igual que la calibración**:
+  `len(trim_silence(...)) / 16000`, que **incluye el margen de 0,25 s** de cada
+  lado (`duracion_voz_util`); cambiar esa medida obliga a recalibrar. Audio de
+  más de 30 s ⇒ `NOT_AVAILABLE` sin pasar por el modelo.
+- **Fallo cerrado (SEG-6)**: modelo que no carga, usuario sin huella, audio
+  vacío/corto/largo o error interno ⇒ `{"status": "NOT_AVAILABLE", "score": null}`,
+  sin excepciones; el motor cae al modo PIN. El modelo carga UNA vez en
+  `load()` al arrancar; nunca en una petición. Un candado serializa el acceso
+  al modelo (una verificación a la vez).
+- **Variables de entorno**: `EZPAY_SPEAKER_MODEL_DIR` (pesos locales de
+  `speechbrain/spkrec-ecapa-voxceleb`; el embedder fuerza `HF_HUB_OFFLINE=1`
+  antes de importar speechbrain: carga sin internet) y `EZPAY_SPEAKER_DATA_DIR`
+  (por defecto `api/.data/speaker/`, excluido de git con un `.gitignore` `*`).
+- **Enrolamiento**: exactamente 3 muestras PCM float32 16 kHz mono de 3–15 s
+  (medidas como la calibración, con el margen del recorte). Errores 400 con
+  `code` como único mensaje, en orden: `CONSENT_REQUIRED` (sin consent no se
+  procesa nada), `SAMPLES_REQUIRED` (≠ 3 muestras), `INVALID_AUDIO` (vacía,
+  ilegible, < 3 s o > 15 s), `INCONSISTENT_SAMPLES` (par mínimo por debajo de
+  0.45: parecen dos personas). La huella es el promedio L2 de los 3
+  embeddings; un intento fallido conserva la huella anterior; re-enrolar
+  sobrescribe. `status()` responde exactamente `{"enrolled": bool}`.
+- **Privacidad**: en disco solo el embedding (`huella.npy`) y
+  `consent.json` (`consentExterno`, `usuario`) — nunca audio ni transcripciones
+  (PRIV-1); logs sin puntajes, arrays ni audio (PRIV-4); sin consentimiento no
+  se procesa ni un embedding (PRIV-2); borrar huella retira el consentimiento
+  y el script `python scripts/delete_voiceprint.py` lo hace por CLI (PRIV-3).
+  Anti-spoofing fuera de alcance en H2 (riesgo X-4 documentado en el spec).
 
 ## Formas de Voz que consume el motor
 

@@ -1,0 +1,14 @@
+# Dependencias aprobadas por Sebastián (2026-10-17) para la Fase 2 de speech-transcription.
+# Solo esto: faster-whisper y sus transitivas directas. Groq va con urllib (librería estándar).
+faster-whisper==1.2.1
+av==19.0.1
+numpy==2.5.4
+ctranslate2==4.8.3
+
+# Verificación de hablante y enrolamiento (ML 2, api/speaker/), 2026-10-17. Versiones con las que se
+# calibró y se probó (modelo ECAPA en CPU). torchaudio lo requiere speechbrain. El índice de PyTorch
+# para CPU evita bajar las ruedas con CUDA. Coordinado con Voz: numpy queda en la versión de arriba.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1+cpu
+torchaudio==2.11.0+cpu
+speechbrain==1.1.2

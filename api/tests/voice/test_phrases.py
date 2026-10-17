@@ -149,6 +149,8 @@ def test_ninguna_plantilla_queda_sin_llenar():
         S.NEW_RECIPIENT: {"name": "Laura"}, S.PENDING_PAYMENT_SAME_RECIPIENT: {"name": "Laura"},
         S.PENDING_PAYMENT_UNCONFIRMED: {"amount": A20, "name": "Laura"},
         S.PENDING_PAYMENT_UNCONFIRMED_OVERRUN: {"name": "Laura"}, S.PIN_WRONG: {"remaining": 2},
+        S.CONFIRM_CHALLENGE: {"amount": A20, "name": "Laura", "phrase": "Mi casa tiene una puerta verde y grande."},
+        S.CHALLENGE_RETRY: {"phrase": "Mi casa tiene una puerta verde y grande."},
     }
     for situation in Situation:
         text = say(situation, **samples.get(situation, {}))
@@ -166,7 +168,7 @@ NEW_SITUATIONS = [
 def test_las_13_situaciones_nuevas_existen_con_el_nombre_del_reason():
     assert len(NEW_SITUATIONS) == 13
     assert set(NEW_SITUATIONS) <= {s.value for s in Situation}
-    assert len(Situation) == 21 + 13
+    assert len(Situation) == 21 + 13 + 2  # +2 del desafío de confirmación (confirmation-challenge)
 
 
 @pytest.mark.parametrize("situation,text", [

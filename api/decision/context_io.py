@@ -14,6 +14,8 @@ from .models import (
     AgendaOption,
     Amount,
     AmountError,
+    Confirmation,
+    ConfirmationMode,
     Contact,
     Context,
     EngineConfig,
@@ -40,20 +42,26 @@ _VOICE_KEYS = {"status", "score"}
 _QUOTE_KEYS = {"debitAmount", "receiveAmount", "exceedsRemaining"}
 _PENDING_KEYS = {"recipient", "createdAt", "status"}
 _PIN_KEYS = {"result", "sessionFailures", "locked"}
-_CONFIG_KEYS = {"highAmountThreshold", "pendingWindowSeconds", "minIntentConfidence", "minTranscriptConfidence"}
+_CONFIG_KEYS = {"highAmountThreshold", "pendingWindowSeconds", "minIntentConfidence", "minTranscriptConfidence",
+                "confirmationChallenge", "challengePhraseMatchMin"}  # los dos últimos son opcionales (B11)
+_CONFIG_OPTIONAL_KEYS = {"confirmationChallenge", "challengePhraseMatchMin"}
+_CONFIRMATION_KEYS = {"mode", "phraseScore", "voice", "challengeAttempts"}
 _CONTACT_KEYS = {"alias", "name", "walletAddress", "previouslyPaid"}
 _OPTION_KEYS = {"alias", "name"}
-_QUOTE_KEYS = {"debitAmount", "receiveAmount", "exceedsRemaining"}
 
 _CONTEXT_KEYS = {
     "phase", "intent", "resolution", "voice", "enrolled", "hasBudgetGrant", "quote",
     "pendingPayment", "now", "reply", "unclearReplies", "pin", "transcriptConfidence",
-    "intentConfidence", "config",
+    "intentConfidence", "config", "confirmation",  # confirmation es opcional (B11)
 }
+_CONTEXT_OPTIONAL_KEYS = {"confirmation"}  # confirmation ausente ⇒ None (REPLY como hoy)
 
 
-def _dict(value, keys):
-    if not isinstance(value, dict) or set(value) != set(keys):
+def _dict(value, keys, optional=frozenset()):
+    if not isinstance(value, dict):
+        raise ValueError("bad shape")
+    claves = set(value)
+    if not (set(keys) - set(optional)) <= claves or not claves <= set(keys):
         raise ValueError("bad shape")
     return value
 
@@ -186,21 +194,43 @@ def _parse_pin(data):
 
 
 def _parse_config(data):
-    _dict(data, _CONFIG_KEYS)
+    _dict(data, _CONFIG_KEYS, optional=_CONFIG_OPTIONAL_KEYS)
+    confirmation_challenge = data.get("confirmationChallenge", False)
+    if not isinstance(confirmation_challenge, bool):
+        raise ValueError("confirmationChallenge debe ser bool")
+    minimo = data.get("challengePhraseMatchMin", 0.80)
+    if minimo is None:
+        raise ValueError("challengePhraseMatchMin no puede ser null")
     return EngineConfig(
         highAmountThreshold=_amount(data["highAmountThreshold"]),
         pendingWindowSeconds=_int(data["pendingWindowSeconds"]),
         minIntentConfidence=_num_or_none(data["minIntentConfidence"]),
         minTranscriptConfidence=_num_or_none(data["minTranscriptConfidence"]),
+        confirmation_challenge=confirmation_challenge,
+        challenge_phrase_match_min=minimo,
+    )
+
+
+def _parse_confirmation(data):
+    if data is None:
+        return None
+    _dict(data, _CONFIRMATION_KEYS)
+    voice = None if data["voice"] is None else _parse_voice(data["voice"])
+    return Confirmation(
+        mode=ConfirmationMode(data["mode"]),
+        phrase_score=data["phraseScore"],
+        voice=voice,
+        challenge_attempts=data["challengeAttempts"],
     )
 
 
 def parse_context(data: dict) -> Context:
     """dict con las claves camelCase del design.md -> Context. Fail-closed: todo
     lo que no cumpla el contrato exacto (claves, enums, tipos, montos) levanta
-    InvalidContextError con mensaje fijo, sin datos del request."""
+    InvalidContextError con mensaje fijo, sin datos del request. `confirmation`
+    es opcional: ausente o null ⇒ None (la fase CONFIRMATION decide como hoy)."""
     try:
-        _dict(data, _CONTEXT_KEYS)
+        _dict(data, _CONTEXT_KEYS, optional=_CONTEXT_OPTIONAL_KEYS)
         return Context(
             phase=Phase(data["phase"]),
             intent=_parse_intent(data["intent"]),
@@ -217,6 +247,7 @@ def parse_context(data: dict) -> Context:
             transcriptConfidence=_num_or_none(data["transcriptConfidence"]),
             intentConfidence=_num_or_none(data["intentConfidence"]),
             config=_parse_config(data["config"]),
+            confirmation=_parse_confirmation(data.get("confirmation")),
         )
     except InvalidContextError:
         raise

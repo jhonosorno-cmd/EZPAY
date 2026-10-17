@@ -1,9 +1,11 @@
 """Tipos del motor de decisión.
 
 Espec fuente: openspec/changes/add-decision-engine/specs/decision-engine/spec.md,
-requisito "El contexto de entrada" (decidido 2026-10-16 con ML 2, ML 1 y Pagos).
+requisito "El contexto de entrada" (decidido 2026-10-16 con ML 2, ML 1 y Pagos)
+y "Confirmación con desafío de voz" (decidido 2026-10-17, B11).
 Los montos se comparan como enteros (CONV-1): Amount.value es un string de solo dígitos.
 """
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -88,9 +90,13 @@ class Reason(str, Enum):
     PIN_INVALID_FORMAT = "PIN_INVALID_FORMAT"
     CONFIRMED = "CONFIRMED"
     CONFIRMED_NEEDS_WALLET_AUTH = "CONFIRMED_NEEDS_WALLET_AUTH"
+    CONFIRMED_WITH_PIN = "CONFIRMED_WITH_PIN"
     USER_DECLINED = "USER_DECLINED"
     REPLY_UNCLEAR_ASK_AGAIN = "REPLY_UNCLEAR_ASK_AGAIN"
     REPLY_UNCLEAR_REJECTED = "REPLY_UNCLEAR_REJECTED"
+    CHALLENGE_RETRY = "CHALLENGE_RETRY"
+    CHALLENGE_FAILED = "CHALLENGE_FAILED"
+    CHALLENGE_VOICE_NOT_VERIFIED = "CHALLENGE_VOICE_NOT_VERIFIED"
 
 
 class IntentAction(str, Enum):
@@ -139,6 +145,23 @@ class PinVerifyResult(str, Enum):
     OK = "OK"
     WRONG = "WRONG"
     INVALID_FORMAT = "INVALID_FORMAT"
+
+
+class ConfirmationMode(str, Enum):
+    REPLY = "REPLY"
+    CHALLENGE = "CHALLENGE"
+
+
+def _fraction_or_none(value, campo):
+    """Número en [0, 1] o None; sin bool, NaN ni infinito."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{campo} debe ser un número en [0, 1] o None")
+    v = float(value)
+    if math.isnan(v) or math.isinf(v) or not 0.0 <= v <= 1.0:
+        raise ValueError(f"{campo} debe estar en [0, 1]")
+    return v
 
 
 @dataclass(frozen=True)
@@ -229,11 +252,45 @@ class PinContext:
 
 
 @dataclass(frozen=True)
+class Confirmation:
+    """Confirmación del turno (B11). El MODO lo decide el orquestador
+    (`config.confirmationChallenge` es suya, no del motor, SEG-3).
+
+    `phrase_score` es el resultado de `phrase_match` de Voz (None = no hubo
+    respuesta por voz); la coincidencia de texto la calcula Voz, no el motor.
+    `challenge_attempts` cuenta los desafíos repetidos (regla 4 del spec).
+    """
+    mode: ConfirmationMode
+    phrase_score: float | None
+    voice: Voice | None
+    challenge_attempts: int
+
+    def __post_init__(self):
+        object.__setattr__(self, "mode", _coerce(ConfirmationMode, self.mode))
+        object.__setattr__(self, "phrase_score", _fraction_or_none(self.phrase_score, "phrase_score"))
+        if self.voice is not None and not isinstance(self.voice, Voice):
+            raise ValueError("confirmation.voice debe ser Voice o None")
+        if isinstance(self.challenge_attempts, bool) or not isinstance(self.challenge_attempts, int) \
+                or self.challenge_attempts < 0:
+            raise ValueError("challenge_attempts debe ser un int >= 0")
+
+
+@dataclass(frozen=True)
 class EngineConfig:
     highAmountThreshold: Amount | None
     pendingWindowSeconds: int
     minIntentConfidence: float | None
     minTranscriptConfidence: float | None
+    confirmation_challenge: bool = False
+    challenge_phrase_match_min: float = 0.80
+
+    def __post_init__(self):
+        if not isinstance(self.confirmation_challenge, bool):
+            raise ValueError("confirmation_challenge debe ser bool")
+        minimo = _fraction_or_none(self.challenge_phrase_match_min, "challenge_phrase_match_min")
+        if minimo is None:
+            raise ValueError("challenge_phrase_match_min no puede ser None")
+        object.__setattr__(self, "challenge_phrase_match_min", float(minimo))
 
 
 @dataclass(frozen=True)
@@ -253,10 +310,13 @@ class Context:
     transcriptConfidence: float | None
     intentConfidence: float | None
     config: EngineConfig
+    confirmation: Confirmation | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "phase", _coerce(Phase, self.phase))
         object.__setattr__(self, "reply", _coerce(Reply, self.reply))
+        if self.confirmation is not None and not isinstance(self.confirmation, Confirmation):
+            raise ValueError("confirmation debe ser Confirmation o None")
 
 
 @dataclass(frozen=True)

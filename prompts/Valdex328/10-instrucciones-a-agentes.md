@@ -3,7 +3,7 @@
 - Fecha: 2026-10-16
 - Redactadas por: Claude Code (Claude Opus 5.5 y Claude Sonnet 5.5, sesión de planeación y orquestación en Traycer), a pedido de Valdex328 (Daniel, rol Verificación y calidad, ML 2)
 - Destinatarios: dos agentes de OpenCode con el modelo `zai-org/GLM-5.3-Flash` (proveedor featherless): **Constructor de Specs** (escribe los artifacts de los specs) y **Builder** (escribe el código y las pruebas)
-- Nota: estos textos no los escribió Daniel de palabra; son las instrucciones literales que la IA redactó a partir de sus prompts (`03-specs-h1-motor-y-pin.md`, `04-mocks-openspec-y-siguiente-paso.md`, `05-integracion-y-pr.md` y `07-flujos-y-conflictos.md`) y que los agentes recibieron. Se omiten las respuestas de los agentes.
+- Nota: estos textos no los escribió Daniel de palabra; son las instrucciones literales que la IA redactó a partir de sus prompts (`03-specs-h1-motor-y-pin.md`, `04-mocks-openspec-y-siguiente-paso.md`, `05-integracion-y-pr.md`, `07-flujos-y-conflictos.md` y `11-specs-h2-verificacion-y-enrolamiento.md`) y que los agentes recibieron. Se omiten las respuestas de los agentes.
 
 ---
 
@@ -230,7 +230,158 @@ Dos specs en formato OpenSpec (Purpose, trazabilidad, `## ADDED Requirements`, r
 Respóndeme con las rutas, el resumen y los puntos [PROPUESTA]/[VERIFICAR] que queden.
 ````
 
+### A10 — Revisión de los specs de H2 (audio largo, audio corto y latencia)
+
+````text
+Revisión de la sesión padre de los specs de H2: buen trabajo. Tres correcciones en `speaker-verification` (y donde aplique en `voice-enrollment`/story). Lee antes de editar; no toques el repo.
+
+1. **Audio de más de 30 s: no se recorta, falla cerrado.** El contrato ya rechaza un comando de más de 30 s antes de decodificarlo (`AUDIO_TOO_LONG`, B-3 ratificado; `speech-transcription` lee la duración de la cabecera). Cambia el requisito "Entrada de audio normalizada" y el escenario "Audio largo se recorta antes de procesar": `verify`/`embed` MUST NOT procesar más de 30 s; si reciben más (no debería pasar por B-3), devuelven `NOT_AVAILABLE` sin cargar el audio en el modelo (defensa en profundidad), no recortan. Escenario: "Audio de más de 30 s" ⇒ `NOT_AVAILABLE`, el motor pide PIN.
+2. **Audio corto ⇒ `NOT_AVAILABLE`, con duración mínima configurable.** En "Clip demasiado corto": si la voz útil (tras recortar silencios) dura menos que `minVerifySeconds` (configurable; valor provisional **3 s** [VERIFICAR con X-2]: a 1,5 s los puntajes se solapan, a 3 s se separan — experimentos ML 2, 15 oct), `verify` devuelve `NOT_AVAILABLE` (no hay audio suficiente para decidir; NO `BELOW_THRESHOLD`, que significaría "otra persona"). El motor pide PIN. Agrega en el story y en "Puntos abiertos" un **riesgo para la demo**: la frase "Envíale veinte mil a mi hija" puede durar menos de 3 s ⇒ pediría PIN siempre; hay que medirla (X-2) y, si hace falta, que Voz/Frontend sugieran frases de ~3 s o bajar `minVerifySeconds` con evidencia [PARA DECIDIR con Voz y Frontend].
+3. El escenario "Costo medido en CPU" no es un comportamiento verificable por prueba: conviértelo en una nota (o un escenario de presupuesto: "una verificación de un comando de ≤ 30 s responde en < 1 s en CPU" [VERIFICAR]).
+Además, revisa que cada texto de requisito (antes del primer escenario) tenga ≤ 500 caracteres y SHALL/MUST (OpenSpec `--strict` lo exige). Respóndeme con lo que cambió.
+````
+
+### A11 — `voice-enrollment`: los 7 huecos decididos
+
+````text
+Instrucción de Daniel (ML 2): actualiza el artifact `voice-enrollment` (y `speaker-verification` y el story donde toque). Lee antes de editar; no toques el repo. Todo lo siguiente es [DECIDIDO 2026-10-16] salvo lo indicado.
+
+1. **Consentimiento único (opción B).** El mismo `consent=true` cubre la huella y el envío del audio de las órdenes a un servicio externo de transcripción (`speech-transcription` «Audio a un proveedor externo solo con consentimiento»; textos en `verificacion-ml2/textos-enrolamiento.md` del repo). Requisito: un enrolamiento válido registra también el consentimiento del proveedor externo (lo consulta Voz como `consentExterno`), y borrar la huella lo retira. El Contrato B no cambia.
+2. **Persistencia de la huella.** Se guarda en un archivo local fuera de git (los patrones `*.npy` y `*.db` ya están en `.gitignore`), un solo usuario (`userId` fijo del MVP), y se carga al arrancar el backend: un reinicio no borra el registro. Nunca audio, solo el embedding. Escenario: "Reinicio del backend conserva la huella".
+3. **Corte de consistencia por defecto = 0.45** (el mismo umbral de la verificación; misma persona ≥ 0.689, otra persona 0.16–0.23 — experimentos ML 2, 15 oct), configurable y se recalibra en H3.
+4. **Orden de los errores:** `CONSENT_REQUIRED` → `SAMPLES_REQUIRED` → `INVALID_AUDIO` → `INCONSISTENT_SAMPLES` (el primero que aplique; nunca se procesa audio sin consentimiento). Escenario con varios errores a la vez.
+5. **Muestra de más de 15 s ⇒ `400 INVALID_AUDIO`** (por B-3 nunca llegaría más de 30 s).
+6. **La duración se mide después de recortar silencios**, igual que en la verificación (3 s de voz útil como mínimo). Escenario: "Muestra de 4 s con 2 s de silencio ⇒ INVALID_AUDIO".
+7. **Re-enrolamiento atómico:** si el nuevo registro falla cualquier validación, se conserva la huella anterior; solo un registro válido la reemplaza. Escenario.
+8. **Ubicación:** ambos specs de H2 van en el cambio `add-decision-engine` (como dice `docs/decisiones.md` «Pendientes»), no en `add-speaker-verification`: corrige la nota "Copiar a…" de los dos artifacts y el story.
+9. **La huella (promedio vs máximo por muestra) sigue [PROPUESTA]**: se decide tras el experimento X-3; no la cierres.
+Mantén cada texto de requisito ≤ 500 caracteres con SHALL/MUST. Respóndeme con lo que cambió y los puntos que quedan abiertos.
+````
+
+### A12 — `speaker-verification`: los 6 huecos decididos
+
+````text
+Instrucción de Daniel (ML 2): actualiza el artifact `speaker-verification` (y el story si hace falta). Lee antes de editar; no toques el repo. Todo lo siguiente es [DECIDIDO 2026-10-16]:
+
+1. **Corrige la afirmación de seguridad.** En el Purpose, en "Fallo cerrado" y en "Fuera de alcance: anti-spoofing" quita que "el PIN es la barrera principal". Lo correcto: si una grabación del usuario pasa como `VERIFIED`, con destinatario conocido y dentro del presupuesto, el motor NO pide PIN; contra una grabación protegen el tope del grant de presupuesto (SEG-1/SEG-5), el "sí" hablado (SEG-2) y `highAmountThreshold` (SEG-6), cuyo valor decide el experimento X-4. El PIN protege cuando la voz no se verifica. Ajusta el escenario "Riesgo documentado" en ese sentido.
+2. **Recorte de silencios fijado:** el mismo detector de energía con que se calibró el 0.45 (`trim_silence` del script de calibración de ML 2: ventanas de 320 muestras = 20 ms a 16 kHz y 0,25 s de margen a cada lado; experimentos ML 2, 15 oct). Enrolamiento y verificación usan exactamente esa función y esos parámetros; cambiarlos exige recalibrar.
+3. **Comparación en el borde:** `score >= umbral` ⇒ `VERIFIED`; `score < umbral` ⇒ `BELOW_THRESHOLD`. Escenario con `score == 0.45`.
+4. **Carga del modelo al arrancar:** el modelo se carga una vez al iniciar el backend (no en la primera petición). Si la carga falla, toda verificación devuelve `NOT_AVAILABLE` y el arranque deja un aviso en el log sin datos biométricos. Escenarios: "Primer comando sin espera de carga" y "Modelo que no carga ⇒ NOT_AVAILABLE".
+5. **`score = null` con `NOT_AVAILABLE`** (no hay voz que comparar: usuario sin huella, audio corto, más de 30 s, error). Con `VERIFIED`/`BELOW_THRESHOLD` el `score` es el coseno. Refléjalo en el tipo y en los escenarios.
+6. **Una verificación a la vez:** el acceso al modelo se serializa con un candado (medido: 4 peticiones de 30 s en paralelo usaron 1,85 GB de RAM — experimentos ML 2, 15 oct). Escenario de dos peticiones simultáneas: ambas responden y la RAM no crece como con cuatro en paralelo.
+Mantén cada texto de requisito ≤ 500 caracteres con SHALL/MUST. Respóndeme con lo que cambió.
+````
+
 ---
+
+### A13 — Desafío de voz en `decision-engine` y `speaker-verification` (17 oct)
+
+````text
+Instrucción de Daniel (ML 2): agrega el **desafío de voz en la confirmación** a los artifacts `decision-engine` y `speaker-verification` (y al story H1/H2 donde toque). Decisión del equipo [DECIDIDO 2026-10-17, presencial]; lee la propuesta aprobada en el artifact `h2-ml2-speaker-verification/propuesta-confirmacion-con-desafio` antes de escribir. Lee los archivos antes de editar; no toques el repo; requisitos ≤ 500 caracteres con SHALL/MUST.
+
+## Diseño que debe quedar escrito
+**Opción de configuración:** `config.confirmationChallenge: boolean` (apagada por defecto; con `false` todo funciona como hoy) y `config.challengePhraseMatchMin: number` (0,80 por defecto).
+
+**Entrada nueva en el `context`:** `confirmation: { mode: "REPLY" | "CHALLENGE", phraseScore: number | null, voice: { status, score } | null, challengeAttempts: number }`, que arma el orquestador:
+- `mode = "CHALLENGE"` solo si `confirmationChallenge` está activa **y** el comando se verificó por voz sin PIN (`voice.status == "VERIFIED"` en el comando). Si el pago pasó por PIN (texto, voz no verificada, destinatario nuevo, monto alto), `mode = "REPLY"`: el PIN ya es el segundo factor y se confirma con "sí" como hoy. Así no hay ciclos de PIN.
+- `phraseScore`: coincidencia de la respuesta con la frase pedida (0–1, la calcula Voz con `phrase_match`); `null` si no hubo respuesta por voz.
+- `voice`: resultado de `verify` sobre el audio de la respuesta al desafío (la frase dura ~3 s, por encima de `minVerifySeconds`).
+- `challengeAttempts`: desafíos ya fallados en esta confirmación (lo lleva el orquestador).
+
+**Fase `CONFIRMATION` con `mode == "CHALLENGE"`, en orden (primera que aplique):**
+1. `reply == "NO"` (la respuesta fue "no"/"cancela") ⇒ `REJECT` / `USER_DECLINED`.
+2. `phraseScore >= challengePhraseMatchMin` y `confirmation.voice.status == "VERIFIED"` ⇒ con exceso `REQUIRE_AUTH` / `CONFIRMED_NEEDS_WALLET_AUTH`, si no `PAY` / `CONFIRMED`.
+3. `phraseScore >= challengePhraseMatchMin` y voz NO verificada (`BELOW_THRESHOLD`, `NOT_AVAILABLE` o `null`) ⇒ `ASK_PIN` / `CHALLENGE_VOICE_NOT_VERIFIED`.
+4. Frase que no coincide (`phraseScore` bajo el corte o `null`) con `challengeAttempts == 0` ⇒ `ASK_CONFIRM` / `CHALLENGE_RETRY` (el orquestador elige otra frase del banco).
+5. Si no ⇒ `REJECT` / `CHALLENGE_FAILED`.
+Con `mode == "REPLY"` la fase `CONFIRMATION` queda exactamente como hoy.
+
+**Fase `PIN` después de un desafío:** si `confirmation.mode == "CHALLENGE"` y `phraseScore >= challengePhraseMatchMin` (la frase ya coincidió) y `pin.result == "OK"` ⇒ con exceso `REQUIRE_AUTH` / `CONFIRMED_NEEDS_WALLET_AUTH`, si no `PAY` / `CONFIRMED_WITH_PIN` (el PIN reemplaza a la voz; el consentimiento ya lo dio la frase). El resto de la fase PIN no cambia.
+
+**Reasons nuevos (enum pasa de 28 a 32):** `CHALLENGE_RETRY`, `CHALLENGE_FAILED`, `CHALLENGE_VOICE_NOT_VERIFIED`, `CONFIRMED_WITH_PIN`.
+
+**Traducción reason ⇒ situación del catálogo de Voz:** `ALL_CHECKS_PASSED` y `PIN_CORRECT` (y `PENDING_PAYMENT_UNCONFIRMED`) cuando `confirmation.mode == "CHALLENGE"` ⇒ `CONFIRM_CHALLENGE` (sin exceso) o `CONFIRM_CHALLENGE_OVERRUN` (con exceso); con `mode == "REPLY"` como hoy. `CHALLENGE_RETRY` ⇒ `CHALLENGE_RETRY`; `CHALLENGE_FAILED` ⇒ `CHALLENGE_FAILED`; `CHALLENGE_VOICE_NOT_VERIFIED` ⇒ `PIN_KEYBOARD`; `CONFIRMED_WITH_PIN` ⇒ ninguna (como `CONFIRMED`). Textos propuestos para Voz: `CONFIRM_CHALLENGE` "¿Le envío {recibe} {moneda} a {nombre}? Para confirmar, repite: {frase}"; `CONFIRM_CHALLENGE_OVERRUN` "Supera tu presupuesto. Para autorizarlo en tu billetera, repite: {frase}"; `CHALLENGE_RETRY` "No te entendí. Repite: {frase}"; `CHALLENGE_FAILED` "No pude confirmar la frase. No envié nada.". Anota en "Puntos abiertos" que Voz agrega estas 4 situaciones y el banco de frases (pendiente de Voz).
+
+**Escenarios mínimos:** desafío correcto con voz verificada ⇒ PAY; con exceso ⇒ REQUIRE_AUTH; frase correcta y voz de otra persona (grabación con otra frase o impostor) ⇒ ASK_PIN y luego PIN OK ⇒ PAY/CONFIRMED_WITH_PIN; frase incorrecta una vez ⇒ CHALLENGE_RETRY; dos veces ⇒ REJECT/CHALLENGE_FAILED; "no" ⇒ REJECT; grabación reproducida (frase vieja) ⇒ no coincide ⇒ retry y luego REJECT; comando por texto (PIN) ⇒ `mode REPLY` y "sí" como hoy; opción apagada ⇒ igual que hoy; `phraseScore` exactamente 0,80 ⇒ coincide (borde inclusivo).
+
+**`speaker-verification`:** la verificación corre también sobre el audio de la respuesta al desafío (`confirmation.voice`). Actualiza el requisito/escenario "Solo se verifica la voz del comando" (D4): en `mode REPLY` el "sí" sigue sin verificarse; en `mode CHALLENGE` la respuesta sí se verifica. Trazabilidad: decisión del equipo 2026-10-17 y evidencia X-4.
+
+Respóndeme con lo que cambió y el enum final de reasons.
+````
+
+### A14 — Specs de H3: integración y recalibración (17 oct)
+
+````text
+Instrucción de Daniel (ML 2), A14: specs de **H3** del rol ML 2. H3 es el sábado a las 09:30 y el código se congela a las 10:45. Según `docs/spec-general.md` §7, a ML 2 le toca en H3 "Enrolamiento y recalibración en la sala; verificación integrada al motor".
+
+Crea un story nuevo `h3-ml2-integracion-y-recalibracion` (kind story, status 0), con el mismo estilo que `h2-ml2-speaker-verification`, y dos specs hijas. Aplican las reglas de siempre:
+- lee los archivos antes de editar y no toques el repo;
+- requisitos de ≤ 500 caracteres con SHALL/MUST;
+- cierra cada spec con las secciones "Trazabilidad" y "Puntos abiertos";
+- usa `[DECIDIDO …]` solo para lo que ya está decidido; todo lo nuevo va como **[PROPUESTA]**, con opciones y tu recomendación, para que Daniel decida.
+
+## Lee primero (en el repo `C:\Users\danie\Desktop\Hackatons\Interledger\EZPAY`, rama H2, solo lectura)
+- `api/README-ml2.md`, `api/speaker/` (audio, verification, enrollment, store), `api/decision/` (context_io, say_map) y `api/voice/challenge.py`.
+- `openapi/contract-b.yaml` (rutas `/api/enrollment` y `/api/turns`, estados del turno) y `docs/contratos-cambios-propuestos-v1.1.md` (B-5, B-7, B-8).
+- El brief del esqueleto FastAPI de Pagos: `git show origin/main:prompts/jhonosorno-cmd/builder/06-esqueleto-api-fastapi.md`. Ese brief dice que el orquestador real es la "unidad 7", que todavía no existe, y que el esqueleto NO integra `api/decision`, `api/pin`, `api/speaker` ni `api/voice`.
+- Tus artifacts de H1 y H2: decision-engine con el desafío, speaker-verification, voice-enrollment y propuesta-confirmacion-con-desafio. También el comentario más reciente del issue #12 (`gh issue view 12 --comments`): ahí está lo que el orquestador pasa en `context.confirmation`.
+
+## Spec 1: `voice-turn-integration` (la verificación integrada al turno)
+El objetivo es que el orquestador de Alexander (unidad 7) solo tenga que llamar funciones de ML 2, sin conocer SpeechBrain, umbrales ni reglas. Cubre:
+- **Fachada de ML 2 para el orquestador** (módulo en `api/`, sin HTTP).
+  - Del audio del comando a `context.voice`: decodificación con `AvDecoder` de Voz, que ya existe; `verify` en paralelo con `transcribe`.
+  - De la respuesta al desafío a `context.confirmation`: modo, `phraseScore` con `phrase_match`, `voice` de la respuesta y `challengeAttempts`.
+  - Elegir el modo: `CHALLENGE` solo con `confirmationChallenge` activa y el comando verificado sin PIN.
+  - Guardar en la sesión la frase pedida y las frases usadas.
+  - El `context` de `say_situation` en fase COMMAND, con modo CHALLENGE.
+- **Fallos cerrados.** Cualquier excepción, timeout o falta de modelo o de huella da `NOT_AVAILABLE`, nunca `VERIFIED`. Propón un presupuesto de tiempo; las latencias medidas están en H2.
+- **Enrolamiento web.** Cómo se conectan `POST /api/enrollment` y `GET /api/enrollment` del Contrato B con `api/speaker/enrollment`: errores B-5, consentimiento único (`consentExterno`) y borrado.
+- **Límite con Pagos.** Qué hace ML 2 (la fachada y sus pruebas) y qué hace el orquestador (estado de sesión, llamadas a Node). Si el Contrato B necesita un campo nuevo, por ejemplo la frase del desafío para mostrarla en la web, déjalo como [PROPUESTA] de cambio de contrato con dueño Pagos/Frontend.
+- **Privacidad.** Nada de audio, embeddings ni transcripciones en logs o disco; solo `status` y `score` (PRIV).
+
+## Spec 2: `speaker-calibration` (recalibración en la sala, tarea 4.6)
+- **Protocolo en la sala con el micrófono de la demo** (solapa o el que haya): quién se enrola, cuántos intentos genuinos y de impostor, qué frases (las del enrolamiento y las del banco del desafío) y el ruido de la sala.
+- **Métricas.** Falsos aceptados y falsos rechazados al umbral actual, mínimo genuino, máximo impostor y peor par de consistencia, más el puntaje de la frase del desafío dicha en la sala. Esto último se coordina con la batería con ruido de Sebastián.
+- **Regla de decisión** para mover:
+  - `threshold` (0.45);
+  - el corte de consistencia (0.45);
+  - `minVerifySeconds` (2.0 s);
+  - `challengePhraseMatchMin` (0.80).
+  Indica qué evidencia hace falta para cambiar cada uno y qué pasa si no hay tiempo: se quedan los valores actuales y se anota en `docs/decisiones.md`.
+- **Congelamiento** del umbral en H4 y registro del resultado: solo números agregados, nunca audio ni embeddings en el repo. Los scripts van fuera del repo, en `Pruebas ML2`.
+- **Riesgo de la demo:** un enrolamiento que falle en vivo y su plan B.
+
+## Al terminar
+Repórtame en un mensaje:
+- el árbol de artifacts creado;
+- la lista de [PROPUESTA] numeradas, con tu recomendación en cada una (para que Daniel decida rápido);
+- cualquier contradicción que encuentres entre lo que ya existe en el repo y los specs de H1 y H2.
+````
+
+### A15 — Decisiones sobre las specs de H3 (17 oct)
+
+````text
+Decisiones de Daniel sobre A14 (A15). Aplícalas en los artifacts de `h3-ml2-integracion-y-recalibracion` y márcalas **[DECIDIDO 2026-10-17, Daniel]**. Mismas reglas de siempre: lee antes de editar, no toques el repo y requisitos de ≤ 500 caracteres con SHALL/MUST.
+
+## Propuestas aceptadas
+- **P1 a P5, P7 y P8: aceptadas tal como las recomendaste.**
+  - P3 y P4 son cambios de Contrato B. Quedan como propuesta aceptada por ML 2, pendiente del OK de Pagos y Frontend, que son los dueños del contrato.
+  - P8: la fachada usa solo `config.challengePhraseMatchMin` del motor; `CHALLENGE_MIN_MATCH` de Voz queda solo para sus scripts.
+- **P6, con cambio:** se enrolan las **4 personas del equipo**. Como vamos justos de tiempo, desde ya se toman **6 intentos genuinos y 6 de impostor por persona** (no 10 y 10). Las 10 frases del banco y los comandos de la demo se mantienen.
+
+## Corrección obligatoria: estado de sesión (contradicción interna)
+"Fachada de ML 2" y "Reparto con Pagos" dicen que la fachada no guarda estado de sesión. Pero "Elección del modo y frases de la sesión" y "say_situation en fase COMMAND" dicen que la fachada "guarda en la sesión" la frase. Corrígelo así:
+- La fachada es **sin estado**. Recibe como datos lo que necesita: las frases ya usadas, la frase pedida y `challengeAttempts`. Devuelve valores: la frase nueva más la lista de usadas actualizada, y la `confirmation`.
+- **El orquestador guarda todo en su sesión.** Ajusta los requisitos y escenarios que dicen "la fachada guarda".
+
+## Precisiones
+1. **Regla del modo, más exacta.** `CHALLENGE` solo si `config.confirmationChallenge` está activa, la decisión `ASK_CONFIRM` viene directo de la fase **COMMAND** (no de la fase PIN) y `context.voice.status == "VERIFIED"`. En cualquier otro caso, `REPLY`.
+2. **Timeout.** En Python la verificación que excede el tiempo no se cancela: el modelo sigue ocupado y, por el lock (una verificación a la vez), la siguiente espera. La spec debe decirlo. La fachada devuelve `NOT_AVAILABLE` al vencer los 2 s y no lanza otra verificación mientras la anterior siga corriendo (la nueva también da `NOT_AVAILABLE`). Agrega un escenario.
+3. **Puntos abiertos de H1 y H2.** Corrige el texto "Voz agrega las 17 situaciones": Voz ya agregó 15, incluidas `CONFIRM_CHALLENGE` y `CHALLENGE_RETRY`; faltan `CONFIRM_CHALLENGE_OVERRUN` y `CHALLENGE_FAILED`, vigiladas por `PENDING_VOZ_SITUATIONS`.
+4. **`kind=verify_pending`.** Agrégalo como punto abierto, con dueño Pagos (ratificar el campo).
+
+Cuando termines, repórtame qué requisitos cambiaron y confirma que todos los requisitos tocados tienen ≤ 500 caracteres.
+````
 
 ## B. Builder
 
@@ -364,6 +515,176 @@ Si una variante necesita la quote y es None ⇒ `InvalidContextError` (mensaje f
 4. En `api/README-ml2.md`, en "Cómo lo usa el orquestador", cambia la parte de plantillas: `say_situation(decision, context)` ⇒ `voice.phrases.say(Situation(nombre), **params)`.
 
 Respóndeme con el nº de pruebas por directorio y desviaciones. Luego para y espera.
+````
+
+### B6 — Scripts de los experimentos de H2 en vivo (fuera del repo)
+
+Resumen: scripts en `Pruebas ML2\experimentos_h2\` (fuera del repo) para grabar en vivo con las frases oficiales del enrolamiento: `x0_entorno.py` (modelo sin internet y latencia), `x1_enrolar.py` (3 frases, consistencia, huella promedio), `x2_comandos.py` (3 comandos contra todas las huellas, estrategias promedio y máximo, truncados de 1,0 a 3,0 s y sin los primeros 0,5 s), `x4_reproduccion.py` (reproducción desde el celular) y `analizar.py` (informe con decisiones sugeridas). Audio solo en memoria; se guardan solo embeddings y métricas. El texto completo de esta instrucción está en la transcripción de la sesión; aquí se resume porque solo produjo herramientas de medición que no están en el repo.
+
+### B7 — Experimento 6 (detector de voz) y código de H2
+
+````text
+Orden de la sesión padre (Daniel, ML 2). Dos tareas EN ORDEN; avísame al terminar la 1 antes de empezar la 2 (Daniel necesita grabar con la 1). Sin commits ni push: yo los hago.
+
+## Tarea 1 — Experimento de la mejora 6: detector de voz (VAD) vs `trim_silence`
+En `Pruebas ML2\experimentos_h2\` (mismas reglas que antes: no leer `recordings/` ni `test_data/`, audio solo en memoria, solo embeddings y métricas en `resultados/`, reutiliza `lab.py`, `--simular`, `--device`, `--list-devices`).
+- **Detector nuevo:** VAD de SpeechBrain `speechbrain/vad-crdnn-libriparty`, guardado en `Pruebas ML2\pretrained_models\vad-crdnn-libriparty` (la PRIMERA vez se descarga con internet; después debe cargar con `HF_HUB_OFFLINE=1`; si no está y no hay red, avisa claro). Usa sus segmentos de voz: concatena solo los tramos con voz (método V1 "recorte por VAD": primer inicio a último fin, con 0,25 s de margen; y método V2 "solo voz": concatenar los segmentos y quitar pausas internas). Si el VAD no detecta voz, la toma cuenta como `NOT_AVAILABLE`.
+- **`x6_vad.py --persona NOMBRE [--repeticiones 5]`**: en UNA sesión, la persona graba las 3 frases oficiales del enrolamiento y luego los 3 comandos (los mismos de x2) `--repeticiones` veces. Para CADA toma calcula el embedding con los 3 preprocesos: E (energía, `trim_silence` actual), V1 y V2; guarda huellas promedio L2 por método (`resultados/huellas_x6/NOMBRE_{E,V1,V2}.npy`) y la voz útil por método. Compara cada comando contra TODAS las huellas del MISMO método (genuino e impostor) y escribe `resultados/x6.csv` (hablante, huella, genuino, frase, repetición, metodo, voz_util_s, score). Es decir: las MISMAS tomas pasan por los 3 detectores (comparación justa).
+- **`analizar_x6.py [--umbral 0.45]`**: por método: genuino mínimo/mediana, impostor máximo, margen, falsos aceptados/rechazados a 0.40/0.45/0.50/0.55, consistencia del enrolamiento (peor par por persona), voz útil de la frase de la demo, y casos `NOT_AVAILABLE`. Recomendación: cambiar de E a V1/V2 solo si tiene 0 falsos aceptados a 0.45 y un margen mayor que E en al menos 0,03; si no, quedarse con E (avisa que cambiar el detector obliga a recalibrar y a actualizar el spec). Escribe `resultados/informe_x6.md` e imprímelo.
+- Actualiza `experimentos_h2/README.md` con los comandos. Prueba en seco con `--simular` y luego borra los datos simulados.
+
+## Tarea 2 — Código de H2 en el repo, rama `H2`
+Trabaja en `C:\Users\danie\Desktop\Hackatons\Interledger\EZPAY\` (la rama `H2` ya está activa; no cambies de rama). Fuente de verdad: `openspec/changes/add-decision-engine/specs/speaker-verification/spec.md`, `.../voice-enrollment/spec.md` y `design.md` (léelos completos; los valores ya están decididos: huella = promedio L2-normalizado, umbral 0.45 con `score >= umbral` ⇒ VERIFIED, `minVerifySeconds` 2,0 s de voz útil, tope 30 s ⇒ NOT_AVAILABLE sin cargar, corte de consistencia 0.45, muestras de 3 a 15 s de voz útil, orden de errores CONSENT_REQUIRED → SAMPLES_REQUIRED → INVALID_AUDIO → INCONSISTENT_SAMPLES, consentimiento único con `consentExterno`, re-enrolamiento atómico, persistencia fuera de git, carga del modelo al arrancar, un candado). Si algo es ambiguo, pregúntame.
+- **Paquete nuevo `api/speaker/`** (solo toca `api/speaker/`, `api/tests/speaker/`, `api/README-ml2.md`): `audio.py` (`trim_silence` idéntico al de calibración: frame=320, pad=0,25, umbral 0,1 × RMS máximo; duración de voz útil), `verification.py` (`SpeakerVerifier` con `load()` al arrancar, `embed(pcm)`, `verify(pcm, user) -> {"status", "score"}` con `score=None` en NOT_AVAILABLE, candado), `enrollment.py` (`enroll(samples, consent) -> {"enrolled": True}` o error con `code` de B-5, `status() -> {"enrolled": bool}`, `consent_external() -> bool`, `delete()`), `store.py` (persistencia en un directorio configurable por `EZPAY_SPEAKER_DATA_DIR`, por defecto `api/.data/speaker/`, que crea un `.gitignore` con `*` dentro; guarda solo el embedding y la marca de consentimiento, nunca audio; escritura atómica con archivo temporal + rename), `scripts`: `api/scripts/delete_voiceprint.py` (PRIV-3). Entrada: `numpy` float32 16 kHz mono (Voz decodifica).
+- **El modelo se inyecta:** `SpeakerVerifier(embedder=...)`; el embedder real carga SpeechBrain ECAPA desde `EZPAY_SPEAKER_MODEL_DIR` con `HF_HUB_OFFLINE=1`; si falla, `verify` devuelve NOT_AVAILABLE siempre y deja un aviso sin datos biométricos. Las pruebas usan un embedder FALSO determinista (por ejemplo, vectores fijos por "hablante" sintético) para no depender del modelo ni de la red; agrega UNA prueba de integración que use el modelo real solo si `EZPAY_SPEAKER_MODEL_DIR` existe (si no, `skipTest`). `speechbrain`/`torch` se importan de forma perezosa (el paquete debe importarse sin ellos).
+- **Pruebas primero:** una prueba por cada `#### Scenario` de los dos specs (nómbralas con el título del escenario), en `api/tests/speaker/` sin `__init__.py`, nombres de archivo únicos (no repitas los de `tests/voice`, `tests/decision`, `tests/pin`). Escenarios que dependen de medición (latencia < 1 s, RAM) ⇒ prueba de integración con `skipTest` si no hay modelo. Privacidad: verifica que ni logs ni excepciones contienen audio, embeddings ni puntajes (captura logging). Concurrencia: dos hilos llaman a `verify` y el candado serializa.
+- Corre con `C:\Users\danie\Desktop\Hackatons\Interledger\Pruebas ML2\.venv\Scripts\python.exe` desde `api/`: `PYTHONPATH=. python -m unittest discover -s tests/speaker -v`, y también las suites existentes (`tests/decision`, `tests/pin`; si `tests/voice` usa pytest y no está instalado, dilo) para confirmar que no rompiste nada. Pruébalo también con el modelo real apuntando `EZPAY_SPEAKER_MODEL_DIR` a `Pruebas ML2\pretrained_models\spkrec-ecapa-voxceleb`.
+- README-ml2: sección "Verificación de hablante y enrolamiento" con cómo lo usa el orquestador (cargar al arrancar; `verify` ⇒ `context.voice`; `enroll`/`status`/`delete` para las rutas `/api/enrollment` de Pagos; `consent_external()` para Voz) y las variables de entorno.
+
+Entrega de cada tarea: árbol, comandos exactos, nº de pruebas (por directorio) y desviaciones.
+````
+
+### B8 — Continuar con el código de H2
+
+````text
+Tarea 1 aprobada, gracias (buen hallazgo el del silencio digital). Sigue con la Tarea 2 (paquete `api/speaker/` en el repo, rama `H2`) tal como está en mi mensaje anterior. Daniel graba x6 en paralelo con el mismo micrófono; no toques `Pruebas ML2\experimentos_h2\` mientras tanto. Sin commits; avísame al terminar con árbol, comandos y nº de pruebas por directorio.
+````
+
+### B9 — Medir la voz útil como en la calibración
+
+````text
+Revisión de la sesión padre: muy buen trabajo, pero hay que revertir la desviación 1 (bloqueante). Los valores 2,0 s (`minVerifySeconds`), 3 s y 15 s se CALIBRARON midiendo la voz útil como `len(trim_silence(audio)) / SAMPLE_RATE`, es decir, CON el margen de 0,25 s a cada lado (ver `Pruebas ML2\experimentos_h2\lab.py` líneas ~205 y ~267: `len(corte_e) / SAMPLE_RATE` y `len(audio) / SAMPLE_RATE` tras `trim_silence`). Los truncados de X-2 (1,0–3,0 s) también se cortaron sobre el audio ya recortado con margen. Si el código mide sin margen (~0,5 s menos), la frase de la demo (2,06–3,02 s medidos con margen) quedaría en ~1,56–2,5 s y muchas tomas genuinas darían NOT_AVAILABLE ⇒ PIN en plena demo. Cambios (pruebas primero):
+1. `duracion_voz_util(pcm)` = `len(trim_silence(pcm, frame=320, pad=0.25)) / SAMPLE_RATE` (exactamente la medida de la calibración; con audio sin voz, 0). Úsala igual en verificación (2,0 s) y enrolamiento (3–15 s). Docstring: "misma medida que la calibración del 16–17 oct (incluye el margen de 0,25 s); cambiarla obliga a recalibrar".
+2. Prueba de no regresión: una toma sintética con 1,6 s de voz + silencios ⇒ voz útil = 1,6 + 0,5 = 2,1 s ⇒ se verifica (no NOT_AVAILABLE); y una de 1,4 s de voz ⇒ 1,9 s ⇒ NOT_AVAILABLE. Y una prueba que compare `duracion_voz_util` con `len(trim_silence(x))/16000` para varios audios.
+3. Actualiza README-ml2 si menciona la medida.
+Corre de nuevo tests/speaker (normal y con el modelo real), tests/decision y tests/pin. Sin commits. Respóndeme con los números.
+````
+
+### B10 — Persistir el contador global del PIN
+
+````text
+Orden de la sesión padre (Daniel, ML 2): persistir el contador GLOBAL de fallos del PIN (tarea 1.4 de add-decision-engine; en H1 vivía en memoria). Repo EZPAY, rama `H2` (no cambies de rama), solo toca `api/pin/`, `api/scripts/reset_pin_lock.py`, `api/tests/pin/` y `api/README-ml2.md`. Pruebas primero; sin commits.
+- Persistencia "junto a la huella": directorio configurable `EZPAY_PIN_DATA_DIR`, por defecto `api/.data/pin/` (crea un `.gitignore` con `*` dentro, igual que `api/.data/speaker/`). Guarda SOLO `{"globalFailures": int, "locked": bool}` en un JSON; NUNCA el PIN, ni el hash, ni contadores de sesión (los de sesión siguen en memoria). Escritura atómica (temporal + `os.replace`), bajo el mismo `threading.Lock` del validador.
+- Al iniciar `PinValidator` se carga el estado; cada fallo, cada PIN correcto (reinicia el global) y cada bloqueo se guardan antes de responder. Un reinicio del backend conserva el bloqueo y el conteo.
+- Archivo ilegible o corrupto ⇒ falla cerrado: se trata como `locked: true`, deja un aviso en el log sin datos sensibles; `reset_pin_lock.py` lo repara (escribe `{0, false}`).
+- `scripts/reset_pin_lock.py` ahora reinicia el estado PERSISTIDO (ya no depende del proceso del backend); actualiza su docstring.
+- Estado inyectable para pruebas (directorio temporal). Pruebas: reinicio conserva 4 fallos y el 5.º bloquea; reinicio conserva el bloqueo; PIN correcto persiste el reinicio a 0; archivo corrupto ⇒ bloqueado; reset por script ⇒ desbloqueado; el JSON nunca contiene el PIN ni el hash (busca el PIN y el hash en el contenido); concurrencia sigue contando exacto.
+- Corre `PYTHONPATH=. python -m pytest tests -q` desde `api/` (pytest ya está instalado en el .venv de Pruebas ML2) y repórtame los números. Actualiza README-ml2 (variable `EZPAY_PIN_DATA_DIR` y que el bloqueo sobrevive al reinicio).
+````
+
+Las instrucciones al Constructor de Specs de esta etapa (plan de experimentos, resultados del 17 oct, X-6 y frase de la demo con la divisa) actualizaron los artifacts que luego se copiaron a `openspec/changes/add-decision-engine/`; sus decisiones están en `prompts/Valdex328/12-rama-h2-experimentos-y-codigo.md` y en `design.md`.
+
+### B11 — Confirmación con desafío de voz en el motor (17 oct)
+
+````text
+Instrucción de Daniel (ML 2), B11: implementa la **confirmación con desafío de voz** en el motor. Repo `C:\Users\danie\Desktop\Hackatons\Interledger\EZPAY`, rama `H2` (no cambies de rama, no hagas pull, merge ni commits). Toca SOLO `api/decision/`, `api/tests/decision/` y `api/README-ml2.md`. Pruebas primero y luego el código.
+
+## Fuente de verdad
+Lee antes de escribir: `openspec/changes/add-decision-engine/specs/decision-engine/spec.md` (requisitos "Confirmación con desafío de voz", "Tabla de la fase PIN", "El motor no obedece al LLM") y `openspec/changes/add-decision-engine/design.md` (contexto de entrada, tabla regla→reason con las filas `CONFIRMATION (CHALLENGE)` y la fila PIN con desafío, y la tabla reason→situación). Si el spec y esta instrucción no coinciden, para y pregúntame.
+
+## Qué implementar
+1. **Modelos (`models.py`)**:
+   - `Reason` suma `CHALLENGE_RETRY`, `CHALLENGE_FAILED`, `CHALLENGE_VOICE_NOT_VERIFIED` y `CONFIRMED_WITH_PIN` (total 32).
+   - `ConfirmationMode` (`REPLY`, `CHALLENGE`).
+   - `Confirmation(mode, phrase_score: float|None, voice: Voice|None, challenge_attempts: int)`. Valida: `phrase_score` en [0, 1] o None, sin bool ni NaN ni inf. `challenge_attempts` es un int ≥ 0, sin bool.
+   - `Context.confirmation: Confirmation|None` (por defecto None).
+   - `EngineConfig` suma `confirmation_challenge: bool = False` y `challenge_phrase_match_min: float = 0.80` (en [0,1]).
+2. **`context_io.py`**: parsea `confirmation` (claves camelCase: `mode`, `phraseScore`, `voice`, `challengeAttempts`), `config.confirmationChallenge` y `config.challengePhraseMatchMin`. El parser sigue estricto y falla cerrado con `InvalidContextError`, como hoy: tipos malos, claves faltantes, modo desconocido y voice mal formada. Los mensajes de error NO deben incluir el valor recibido. `confirmation` ausente o null ⇒ None.
+3. **`engine.py`**:
+   - En fase `CONFIRMATION` con `confirmation` no nulo y `mode == CHALLENGE`, aplica en orden (gana la primera que aplique):
+     1. `reply == NO` ⇒ `REJECT`/`USER_DECLINED`.
+     2. `phrase_score >= min` y `voice.status == VERIFIED` ⇒ si la quote excede el presupuesto, `REQUIRE_AUTH`/`CONFIRMED_NEEDS_WALLET_AUTH`; si no, `PAY`/`CONFIRMED`. Usa el mismo cálculo de exceso que hoy.
+     3. `phrase_score >= min` y voz no verificada (`BELOW_THRESHOLD`, `NOT_AVAILABLE` o voice None) ⇒ `ASK_PIN`/`CHALLENGE_VOICE_NOT_VERIFIED`.
+     4. Frase que no coincide (`phrase_score` None o `< min`) con `challenge_attempts == 0` ⇒ `ASK_CONFIRM`/`CHALLENGE_RETRY`.
+     5. Resto ⇒ `REJECT`/`CHALLENGE_FAILED`.
+   - El borde es inclusivo: 0.80 cuenta como coincidencia.
+   - Con `mode == REPLY` o `confirmation` None, la fase CONFIRMATION queda EXACTAMENTE como hoy.
+   - En fase `PIN`: si `pin.result == OK`, `confirmation.mode == CHALLENGE` y `phrase_score >= min` ⇒ con exceso, `REQUIRE_AUTH`/`CONFIRMED_NEEDS_WALLET_AUTH`; si no, `PAY`/`CONFIRMED_WITH_PIN`. El resto de la fase PIN no cambia: el bloqueo sigue ganando primero, y PIN incorrecto, agotado o con formato inválido siguen igual.
+   - Invariante de seguridad (SEG-3): `PAY` solo puede salir de (a) CONFIRMATION en modo REPLY con "sí", (b) CONFIRMATION en modo CHALLENGE con frase que coincide y voz VERIFIED, o (c) PIN OK tras un desafío con frase que coincide. Ningún otro camino, tampoco en fase COMMAND.
+   - `config.confirmation_challenge` NO lo evalúa el motor: decidir el modo es trabajo del orquestador. El motor solo lee `confirmation.mode`. Documéntalo en el README.
+4. **`say_map.py`**:
+   - `ALL_CHECKS_PASSED` y `PENDING_PAYMENT_UNCONFIRMED` con `mode == CHALLENGE` ⇒ `CONFIRM_CHALLENGE` (sin exceso) o `CONFIRM_CHALLENGE_OVERRUN` (con exceso). Con REPLY o None quedan como hoy.
+   - `PIN_CORRECT` con CHALLENGE no se emite: no hay mapeo nuevo, así que deja el actual.
+   - `CHALLENGE_RETRY` ⇒ `CHALLENGE_RETRY`; `CHALLENGE_FAILED` ⇒ `CHALLENGE_FAILED`; `CHALLENGE_VOICE_NOT_VERIFIED` ⇒ `PIN_KEYBOARD`; `CONFIRMED_WITH_PIN` ⇒ ninguna situación, igual que `CONFIRMED`.
+   - IMPORTANTE: las 4 situaciones nuevas (`CONFIRM_CHALLENGE`, `CONFIRM_CHALLENGE_OVERRUN`, `CHALLENGE_RETRY`, `CHALLENGE_FAILED`) todavía NO existen en `api/voice/phrases.py`, porque son de Sebastián. NO toques `api/voice/`. Devuelve el NOMBRE de la situación como string, igual que hoy con las situaciones que faltaban. Si hoy hay una prueba que exige que cada situación exista en `Situation`, marca solo esas 4 como pendientes de Voz con un set explícito `PENDING_VOZ_SITUATIONS` y una prueba que falle si alguna de esas 4 ya existe en `Situation` sin quitarse del set.
+
+## Pruebas (antes del código)
+Suponemos los resultados de la parte de Sebastián: `phraseScore` es un número dado. Sebastián prueba `phrase_match` por su lado; tú NO implementes coincidencia de texto. Casos mínimos, en un archivo nuevo `tests/decision/test_engine_challenge.py`, reusando `decision_fixtures.py`:
+- Los 9 escenarios del requisito "Confirmación con desafío de voz": desafío correcto ⇒ PAY; con exceso ⇒ REQUIRE_AUTH; borde 0.80 coincide; 0.7999 no coincide; frase correcta + voz BELOW_THRESHOLD / NOT_AVAILABLE / None ⇒ ASK_PIN; frase mala con 0 intentos ⇒ CHALLENGE_RETRY; con 1 y con 5 ⇒ CHALLENGE_FAILED; phraseScore None ⇒ tratado como no coincidente; "no" gana aunque la frase coincida; grabación (frase mala) ⇒ retry y luego reject; modo REPLY ⇒ igual que hoy; confirmation None ⇒ igual que hoy.
+- Fase PIN tras el desafío: OK ⇒ PAY/CONFIRMED_WITH_PIN; OK con exceso ⇒ REQUIRE_AUTH; OK con frase que NO coincide ⇒ comportamiento actual (ASK_CONFIRM/PIN_CORRECT); bloqueado gana; WRONG, EXHAUSTED e INVALID_FORMAT sin cambios.
+- Propiedad SEG-3: barre combinaciones (fase × modo × reply × phraseScore {None, 0, 0.79, 0.8, 1} × voice status × pin result × attempts) y comprueba que `PAY` solo sale de los tres caminos permitidos.
+- Determinismo: el mismo context da la misma decisión.
+- `context_io`: un JSON válido con `confirmation`; y que falle cerrado con phraseScore 1.5, -0.1, "0.9", true y NaN; con challengeAttempts -1, 1.0 y true; con un mode desconocido; y con la clave mode faltante. El error no debe contener el valor.
+- `say_map`: los mapeos nuevos de arriba.
+- Todas las pruebas existentes deben seguir pasando sin modificarlas, salvo la ampliación justificada del conteo de reasons (28 ⇒ 32). Si tienes que cambiar otra prueba existente, dime cuál y por qué.
+
+## Al terminar
+Corre desde `api/`: `PYTHONPATH=. python -m unittest discover -s tests/decision` y la suite completa (`PYTHONPATH=. python -m pytest tests -q`). Actualiza `README-ml2.md`: cómo arma el orquestador `confirmation`, que el modo lo decide el orquestador, y la nota de las 4 situaciones pendientes de Voz. Repórtame:
+- los archivos tocados;
+- los números de las pruebas;
+- cualquier duda o desviación.
+
+Daniel ejecutará las pruebas él mismo antes de integrar, así que deja los comandos exactos en tu reporte.
+````
+
+### B12 — Experimento X-7: frases del banco del desafío (17 oct)
+
+````text
+Instrucción de Daniel (ML 2), B12: experimento **X-7, frases del banco del desafío**. Va FUERA del repo, en `C:\Users\danie\Desktop\Hackatons\Interledger\Pruebas ML2\experimentos_h2\`, con el mismo estilo que x1, x2 y x6: reusa `lab.py` y su `--simular`, `--device` y `--list-devices`. No toques el repo EZPAY (léelo solamente), no hagas commits y no leas ni abras archivos `.npy`, audio ni grabaciones existentes: solo cárgalos desde código para comparar.
+
+## Pregunta que responde
+Con el desafío de confirmación, la persona repite una frase del banco de 6 a 9 palabras, y su voz se verifica con `verify`. Hay que saber dos cosas:
+1. ¿Las frases dan al menos `minVerifySeconds` = 2.0 s de voz útil? Si no, la verificación da `NOT_AVAILABLE` y el motor pide PIN siempre.
+2. ¿El umbral de 0.45 sigue separando a la persona genuina de los impostores con frases de ese largo?
+
+## `x7_desafio.py --persona <nombre> [--frases N] [--semilla S] [--transcribir]`
+- **Banco.** Léelo del repo, por defecto de `C:\Users\danie\Desktop\Hackatons\Interledger\EZPAY\api\voice\challenge_phrases.json`, con `--banco` para cambiar la ruta. Usa `voice.challenge.load_bank` si se puede importar (agrega el `api/` del repo a `sys.path` solo para importar). Si no se puede, lee el JSON con la misma validación.
+- **Qué frases.**
+  - Por defecto: TODAS las frases de 6 palabras (las de más riesgo) y, al azar, otras hasta completar `--frases`, que por defecto es 12. Usa `--semilla`, por defecto 7, para que todas las personas lean LAS MISMAS frases en el mismo orden.
+  - `--frases 0` significa todo el banco.
+- **Toma.** Por cada frase: `mostrar_frase` y `grabar_con_revision`, con el aviso de hablar después de "● GRABANDO". Pide leerla con naturalidad, a ritmo normal.
+- **Medidas por toma.** Usa el mismo procesamiento de la calibración: `trim_silence(frame=320, pad=0.25)`, y voz útil = `len(recortado) / 16000`, incluido el margen.
+  - `voz_util_s`;
+  - `bajo_min`: `voz_util_s < 2.0`, configurable con `--min-verify`;
+  - `palabras` y `palabras_por_s`;
+  - `score` contra la huella promedio (estrategia A) de CADA persona en `resultados/huellas/` (las de x1), con `genuino` = (huella == persona);
+  - veredicto a `--umbral`, por defecto 0.45: `VERIFIED`, `BELOW_THRESHOLD` o `NOT_AVAILABLE` (este último si `bajo_min`, igual que `verify`);
+  - latencia del embedding.
+
+  Si la persona no tiene huella en `resultados/huellas/`, avisa y sigue: sus tomas solo sirven como impostor contra las demás.
+- **`--transcribir` (opcional).** Transcribe en LOCAL con el motor local de Voz del repo (faster-whisper `base`, sin red, nunca Groq) y calcula `phrase_match(transcripción, frase)` de `voice.challenge`. Guarda SOLO el puntaje (`phrase_score`), nunca el texto transcrito. Si el motor local no carga, deja la columna vacía y sigue.
+- **Salida.** `resultados/x7.csv`, con una fila por (toma, huella). Campos: `hablante`, `huella`, `genuino`, `frase_id` (el índice en el banco), `palabras`, `voz_util_s`, `bajo_min`, `palabras_por_s`, `score`, `veredicto`, `latencia_s`, `phrase_score`. La columna `frase_id` es un índice: no escribas el texto de la frase en el CSV (no es dato personal, pero así es más corto).
+- **Privacidad.** X-7 NO acepta `--guardar-audio`: si `lab` lo agrega, desactívalo o recházalo. No guarda embeddings de las tomas; el audio vive solo en memoria.
+
+## `analizar_x7.py` ⇒ `resultados/informe_x7.md` (y lo imprime)
+- **Por frase:** mínimo, mediana y máximo de `voz_util_s` entre las personas, y cuántas tomas quedan bajo 2.0 s. Marca la frase para **sacar o alargar** si alguna toma queda bajo 2.0 s, o si la mínima queda bajo 2.2 s (margen de 0.2 s).
+- **Global a 0.45:**
+  - falsos aceptados (impostor VERIFIED) y falsos rechazados (genuino BELOW_THRESHOLD; los NOT_AVAILABLE se cuentan aparte);
+  - genuino mínimo, impostor máximo y margen;
+  - las mismas cifras a 0.40, 0.50 y 0.55.
+- **Comparación con los comandos de x2.** Si existe `resultados/comandos.csv` (estrategia A, variante completa), compara su genuino mínimo y su impostor máximo con los de X-7 y di si las frases del banco separan peor que los comandos.
+- **`phrase_score`** (si hay datos): mínimo y mediana, y cuántas tomas genuinas quedan bajo 0.80.
+- **Recomendación** en 3 a 5 líneas:
+  - qué frases sacar o alargar;
+  - si 0.45 se mantiene para el desafío;
+  - si `minVerifySeconds` 2.0 s es compatible con el banco.
+  Para cambiar el umbral usa el mismo criterio de antes: 0 falsos aceptados en el umbral propuesto y un margen claro.
+
+## README y pruebas
+- Agrega al `README.md` la sección "7) X-7 frases del desafío", con los comandos exactos en PowerShell (desde `Pruebas ML2`) para daniel, sebastian y alex, y la tabla de archivos (`x7.csv`, `informe_x7.md`).
+- Prueba en seco: `x7_desafio.py --persona prueba --simular --frases 3` y luego `analizar_x7.py` deben correr de punta a punta sin micrófono.
+- Pruebas unitarias pequeñas, si las otras las tienen; si no, al menos las funciones puras del análisis probadas con datos sintéticos:
+  - la marca de frase corta;
+  - el conteo de falsos aceptados y falsos rechazados;
+  - que el CSV no contenga texto de transcripción.
+
+Repórtame en un mensaje:
+- los archivos creados;
+- la salida de la prueba en seco;
+- cuántas frases del banco tienen 6 palabras;
+- los comandos exactos que Daniel tiene que correr.
+
+Pausa ahí.
 ````
 
 ---

@@ -4,9 +4,12 @@
 
 Convertir montos hablados o escritos en es-CO a `Amount`, y formatear montos para pantalla y voz, sin
 usar nunca `number` o `float`. Origen: Spec general §6 (CONV-1) y Contratos § Tipos compartidos;
-la revisión del rol Voz del 13 de octubre (espacio de trabajo previo) (V-01, V-15, V-16, V-17, V-26). Depende de la decisión D3
-propuesta al equipo; los ejemplos usan `COP` con `assetScale: 2`, que viene de configuración (no está
-fijo en el parser) y está pendiente de confirmar en la wallet emisora **[VERIFICAR]** (E1).
+la revisión del rol Voz del 13 de octubre (espacio de trabajo previo) (V-01, V-15, V-16, V-17, V-26);
+B-6 ratificado en `docs/contratos-cambios-propuestos-v1.1.md`. Los ejemplos usan `COP` con
+`assetScale: 2`, que viene de configuración (no está fijo en el parser). Que la wallet emisora de la
+Test Wallet opere en COP con escala 2 sigue **[VERIFICAR]** (E1): dueño equipo (Pagos entrega la
+configuración de la wallet), experimento: una quote real en la Test Wallet (`docs/contratos-http-v1.md`
+§ Pendientes); la receptora ya está confirmada.
 
 ## ADDED Requirements
 
@@ -45,8 +48,37 @@ El parser SHALL convertir montos en palabras en español a su valor entero en pe
 - **WHEN** el parser convierte "medio millón"
 - **THEN** el resultado es `{ value: "50000000" }` con escala 2
 
+#### Scenario: Millón y medio
+- **WHEN** el parser convierte "un millón y medio"
+- **THEN** el resultado es `{ value: "150000000" }` con escala 2
+
+#### Scenario: Dígitos y palabras mezclados
+- **WHEN** el parser convierte "20 mil 500"
+- **THEN** el resultado es `{ value: "2050000" }` con escala 2
+
+### Requirement: Ruido aceptado alrededor del monto
+El parser SHALL ignorar como ruido los signos y palabras que no cambian el monto: "$", "peso", "pesos", "COP" y "de" (decisión de Sebastián, 2026-10-16, `api/voice/amounts.py`). El parser SHALL aceptar como entrada máximo 200 caracteres y producir como resultado máximo 1.000.000.000 pesos; lo que pase esos topes MUST resultar en `INVALID_AMOUNT`. El `value` resultante MUST NOT tener ceros a la izquierda.
+
+#### Scenario: Signo de moneda
+- **WHEN** el parser convierte "$20.000"
+- **THEN** el resultado es `{ value: "2000000" }` con escala 2
+
+#### Scenario: Entrada demasiado larga
+- **WHEN** el parser recibe más de 200 caracteres
+- **THEN** responde `INVALID_AMOUNT`
+
+#### Scenario: Monto sobre el tope
+- **WHEN** el parser convierte "2.000.000.000"
+- **THEN** responde `INVALID_AMOUNT`
+- **AND** no devuelve ningún monto
+
 ### Requirement: Jerga solo con valor validado
-Las palabras de jerga ("luca", "barra", etc.) SHALL convertirse solo si están en la tabla de jerga validada por hablantes colombianos **[VERIFICAR]**. Cualquier palabra fuera de esa tabla MUST resultar en `AMBIGUOUS_AMOUNT`.
+Las palabras de jerga ("luca", "barra", etc.) SHALL convertirse solo si están en la tabla de jerga validada por hablantes colombianos **[VERIFICAR]** (dueño: ML 1; experimento X-5 con hablantes colombianos, conjunto `frases-desarrollo.md` §A). Sin tabla validada, toda jerga conocida MUST resultar en `AMBIGUOUS_AMOUNT`, y cualquier palabra fuera de esa tabla MUST resultar en `AMBIGUOUS_AMOUNT`.
+
+#### Scenario: Jerga sin validar
+- **WHEN** el parser convierte "20 lucas" sin tabla validada
+- **THEN** responde `AMBIGUOUS_AMOUNT`
+- **AND** el sistema pregunta el monto otra vez
 
 #### Scenario: Jerga fuera de la tabla
 - **WHEN** el parser recibe una palabra de jerga que no está en la tabla
@@ -65,9 +97,11 @@ Si el monto tiene más decimales que `assetScale`, el parser MUST responder `TOO
 - **WHEN** el parser convierte "1,005" con `assetScale: 2`
 - **THEN** responde `TOO_MANY_DECIMALS`
 
-#### Scenario: Cero sobrante
-- **WHEN** el parser convierte "10,500" con `assetScale: 2`
-- **THEN** el resultado es `{ value: "1050" }`
+#### Scenario: Coma con tres dígitos que terminan en cero
+- **WHEN** el parser convierte "150,000" o "10,500" con `assetScale: 2`
+- **THEN** responde `AMBIGUOUS_AMOUNT`
+- **AND** no devuelve ningún monto
+- **NOTE** Esperaba 150 pesos y 10,50; pasó que la transcripción de Groq escribe la coma como separador de miles ("$150,000" por ciento cincuenta mil). Cambio: se pregunta de nuevo (17 oct, prueba "lejos" de H3).
 
 #### Scenario: Escala cero
 - **WHEN** el parser convierte "10,50" con `assetScale: 0`
@@ -111,17 +145,26 @@ El sistema SHALL formatear un `Amount` para pantalla y voz usando el punto como 
 - **WHEN** se formatea un monto y se vuelve a convertir con el parser
 - **THEN** el `value` obtenido es el original
 
-### Requirement: La confirmación hablada nombra monto y destinatario
-Antes de cada pago, el `say` de confirmación SHALL incluir el monto que recibe el destinatario y el nombre del contacto (SEG-2). Si además dice el monto que se debita, la decisión sobre cuál cifra mostrar la toma el equipo **[PARA DECIDIR]**, ver revisión V-16.
+### Requirement: La confirmación hablada nombra monto y destinatario, nunca el costo
+Antes de cada pago, el `say` de confirmación SHALL incluir el monto que recibe el destinatario (`receiveAmount`) y el nombre del contacto (SEG-2), y MUST NOT mencionar el costo ni el monto debitado (B-6, ratificado; `payments-client`, "El monto que se dice antes del sí"). El costo (`debitAmount − receiveAmount`, con aritmética entera) se dice solo después de `COMPLETED` (`payments-client`, "Monto que se dice en el recibo del pago").
 
 #### Scenario: Confirmación de 20.000 a Laura
 - **WHEN** hay una quote con `receiveAmount` de 20.000 para el contacto Laura
 - **THEN** el `say` contiene "20.000" y "Laura"
+- **AND** el `say` no menciona el débito ni el costo
 - **AND** el estado es `AWAITING_CONFIRMATION`
 
-### Requirement: La moneda y la escala vienen de configuración
-El parser SHALL recibir `assetCode` y `assetScale` como parámetros, nunca fijos en el código. Para el MVP, el valor es una constante de configuración.
+#### Scenario: El costo se dice en el recibo
+- **WHEN** un pago `COMPLETED` tiene `debitAmount` de 2015000 y `receiveAmount` de 2000000 (COP, escala 2)
+- **THEN** el `say` del recibo menciona el costo "150" calculado como débito − recibido con enteros
+
+### Requirement: La moneda, la escala y su palabra vienen de configuración
+El parser SHALL recibir `assetCode` y `assetScale` como parámetros, nunca fijos en el código. Para el MVP, el valor es una constante de configuración. La palabra de la moneda que se dice en voz ("pesos") también SHALL salir de la configuración, no de la plantilla (`api/voice/config.py`, `CURRENCY_WORDS`).
 
 #### Scenario: Escala distinta
 - **WHEN** se convierte "20.000" con `assetScale: 0`
 - **THEN** el resultado es `{ value: "20000", assetScale: 0 }`
+
+#### Scenario: Palabra de la moneda
+- **WHEN** se arma un `say` con un `Amount` en COP
+- **THEN** la palabra dicha después del monto sale de la configuración ("pesos")

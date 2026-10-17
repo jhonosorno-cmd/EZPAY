@@ -3,15 +3,18 @@
 El catálogo de `say` vive SOLO en `voice/phrases.py` (ML 1): aquí no hay textos.
 Esta función devuelve el NOMBRE de la situación; el orquestador llama
 `voice.phrases.say(Situation(nombre), **params)` con los parámetros del turno
-(monto, contacto, escala de decimales...). `CONFIRMED` devuelve `None`: el `say`
-sale del resultado del pago (`COMPLETED`, `AUTH_APPROVED`, `PAYMENT_PENDING`...).
+(monto, contacto, escala de decimales...). `CONFIRMED` (y `CONFIRMED_WITH_PIN`,
+B11) devuelve `None`: el `say` sale del resultado del pago (`COMPLETED`,
+`AUTH_APPROVED`, `PAYMENT_PENDING`...).
 
 Situaciones que Voz ya tiene hoy: `VOICE_SITUATIONS_EXISTING` (21, enum
 `Situation` de `voice/phrases.py`). Situaciones NUEVAS que Voz agregará para
 cubrir razones del motor que hoy no tienen plantilla: `VOICE_SITUATIONS_NEW`
-(13; once comparten nombre con su `reason`).
+(17: 13 + las 4 del desafío de voz B11). De esas, `PENDING_VOZ_SITUATIONS`
+son las que TODAVÍA no existen en `Situation` (son de Sebastián): si Voz
+agrega una, hay que quitarla de ese set (hay una prueba que lo vigila).
 """
-from .models import AmountError, Context, Decision, InvalidContextError, Reason
+from .models import AmountError, ConfirmationMode, Context, Decision, InvalidContextError, Reason
 
 VOICE_SITUATIONS_EXISTING = (
     "NO_SPEECH",
@@ -51,7 +54,19 @@ VOICE_SITUATIONS_NEW = (
     "REPLY_UNCLEAR_REJECTED",
     "PENDING_PAYMENT_UNCONFIRMED",
     "PENDING_PAYMENT_UNCONFIRMED_OVERRUN",
+    # B11: las 4 del desafío de voz (Sebastián las agrega a voice/phrases.py)
+    "CONFIRM_CHALLENGE",
+    "CONFIRM_CHALLENGE_OVERRUN",
+    "CHALLENGE_RETRY",
+    "CHALLENGE_FAILED",
 )
+
+# Situaciones NUEVAS que TODAVÍA no existen en voice/phrases.py (PENdientes de Voz).
+# CONFIRM_CHALLENGE y CHALLENGE_RETRY ya están en Voz (17 oct); faltan estas dos.
+PENDING_VOZ_SITUATIONS = frozenset({
+    "CONFIRM_CHALLENGE_OVERRUN",
+    "CHALLENGE_FAILED",
+})
 
 _SAME_NAME_AS_REASON = frozenset(VOICE_SITUATIONS_NEW) - {
     "PENDING_PAYMENT_UNCONFIRMED",
@@ -63,6 +78,16 @@ def _exceeds_remaining(context: Context) -> bool:
     if context.quote is None:
         raise InvalidContextError()
     return context.quote.exceedsRemaining
+
+
+def _modo_challenge(context: Context) -> bool:
+    """confirmation presente y en modo CHALLENGE (B11); el modo lo arma el orquestador."""
+    confirmation = context.confirmation
+    return confirmation is not None and confirmation.mode is ConfirmationMode.CHALLENGE
+
+
+def _con_o_sin_exceso(context: Context, normal: str, overrun: str) -> str:
+    return overrun if _exceeds_remaining(context) else normal
 
 
 def say_situation(decision: Decision, context: Context) -> str | None:
@@ -105,15 +130,19 @@ def say_situation(decision: Decision, context: Context) -> str | None:
         return "AUTH_BUDGET"
     if reason is Reason.VOICE_NOT_VERIFIED:
         return "PIN_KEYBOARD"
-    if reason is Reason.ALL_CHECKS_PASSED or reason is Reason.PIN_CORRECT:
+    if reason is Reason.ALL_CHECKS_PASSED:
+        if _modo_challenge(context):  # B11: la confirmación pide repetir la frase
+            return _con_o_sin_exceso(context, "CONFIRM_CHALLENGE", "CONFIRM_CHALLENGE_OVERRUN")
+        return "AUTH_OVERRUN" if _exceeds_remaining(context) else "CONFIRM"
+    if reason is Reason.PIN_CORRECT:
+        # el PIN correcto no lleva mapping del desafío: en CHALLENGE con frase
+        # coincidente el motor emite CONFIRMED_WITH_PIN (PAY), no PIN_CORRECT
         return "AUTH_OVERRUN" if _exceeds_remaining(context) else "CONFIRM"
     if reason is Reason.PENDING_PAYMENT_UNCONFIRMED:
-        return (
-            "PENDING_PAYMENT_UNCONFIRMED_OVERRUN"
-            if _exceeds_remaining(context)
-            else "PENDING_PAYMENT_UNCONFIRMED"
-        )
-    if reason is Reason.CONFIRMED:
+        if _modo_challenge(context):  # B11
+            return _con_o_sin_exceso(context, "CONFIRM_CHALLENGE", "CONFIRM_CHALLENGE_OVERRUN")
+        return _con_o_sin_exceso(context, "PENDING_PAYMENT_UNCONFIRMED", "PENDING_PAYMENT_UNCONFIRMED_OVERRUN")
+    if reason is Reason.CONFIRMED or reason is Reason.CONFIRMED_WITH_PIN:  # B11: say del resultado del pago
         return None
     if reason is Reason.CONFIRMED_NEEDS_WALLET_AUTH:
         return "AUTH_REDIRECT"
@@ -121,6 +150,10 @@ def say_situation(decision: Decision, context: Context) -> str | None:
         return "CANCELLED"
     if reason is Reason.REPLY_UNCLEAR_ASK_AGAIN:
         return "CONFIRM_UNCLEAR"
+    if reason is Reason.CHALLENGE_VOICE_NOT_VERIFIED:  # B11: pide PIN (la frase ya coincidió)
+        return "PIN_KEYBOARD"
+    if reason is Reason.CHALLENGE_RETRY or reason is Reason.CHALLENGE_FAILED:  # B11
+        return reason.value
     if reason.value in _SAME_NAME_AS_REASON:
         return reason.value
     raise InvalidContextError()  # Reason es un enum cerrado: no se llega aquí

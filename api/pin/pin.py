@@ -6,27 +6,38 @@
 - Formato 4–6 dígitos ASCII; formato inválido se rechaza sin invocar el KDF y sin
   consumir intento [DECIDIDO 2026-10-16].
 - Comparación en tiempo constante con `hmac.compare_digest` sobre los derivados.
-- Contadores: por sesión (3 fallos → sessionFailures >= 3) y global en memoria
-  (5 fallos seguidos entre sesiones → locked; se pierde al reiniciar el backend,
-  la persistencia se difiere a H2). Un PIN correcto reinicia el contador global,
-  NO el de sesión (decisión literal de D5: 3 fallos por sesión). Una sesión con
-  3 fallos deja de validar intentos (defensa en profundidad), igual que con el
-  bloqueo global. Las sesiones se memorizan con tope (se descarta la más
-  antigua) para que el mapa no crezca sin límite. Los contadores y el bloqueo
-  se protegen con threading.Lock (FastAPI atiende peticiones concurrentes).
+- Contadores: por sesión (3 fallos → sessionFailures >= 3) y global PERSISTIDO
+  (H2, tarea 1.4: 5 fallos seguidos entre sesiones → locked). El estado global
+  vive en EZPAY_PIN_DATA_DIR (por defecto api/.data/pin/, fuera de git) como
+  {"globalFailures": int, "locked": bool}; cada fallo, cada PIN correcto
+  (reinicia el global) y cada bloqueo se guardan antes de responder, así que un
+  reinicio del backend conserva el bloqueo y el conteo. Archivo corrupto ⇒
+  falla cerrado (locked, ver pin/store.py). Un PIN correcto reinicia el
+  contador global, NO el de sesión (decisión literal de D5: 3 fallos por
+  sesión). Una sesión con 3 fallos deja de validar intentos (defensa en
+  profundidad), igual que con el bloqueo global. Las sesiones se memorizan con
+  tope (se descarta la más antigua) para que el mapa no crezca sin límite. Los
+  contadores, el bloqueo y la escritura del estado se protegen con
+  threading.Lock (FastAPI atiende peticiones concurrentes).
 - Sin PIN configurado: nunca OK (falla cerrado).
 - Privacidad: el PIN no va a logs, ni a `error.message`, ni a `repr`, ni fuera
-  de Python. El estado es inyectable (PinValidator con hash_provider) para que
+  de Python; en disco SOLO {globalFailures, locked}, nunca PIN/hash/sesiones.
+  El estado es inyectable (PinValidator con hash_provider y data_dir) para que
   las pruebas sean aisladas.
 """
 import base64
 import binascii
 import hashlib
 import hmac
+import logging
 import os
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
+
+from pin.store import PinStore
+
+logger = logging.getLogger(__name__)
 
 PIN_HASH_ENV = "EZPAY_PIN_HASH"
 HASH_PREFIX = "scrypt"
@@ -97,20 +108,32 @@ def is_valid_pin(pin: str) -> bool:
 
 
 class PinValidator:
-    """Estado inyectable del componente: contadores en memoria del proceso,
-    protegidos por un lock para peticiones concurrentes."""
+    """Estado inyectable del componente: contadores de sesión en memoria del
+    proceso y estado global persistido (pin/store.py), todo bajo un lock para
+    peticiones concurrentes."""
 
-    def __init__(self, hash_provider=None):
+    def __init__(self, hash_provider=None, data_dir=None):
         if hash_provider is None:
             hash_provider = lambda: os.environ.get(PIN_HASH_ENV) or None  # noqa: E731
         self._hash_provider = hash_provider
         self._lock = threading.Lock()
         self._session_failures: "OrderedDict[str, int]" = OrderedDict()
-        self._global_failures = 0
-        self._locked = False
+        self._store = PinStore(data_dir)
+        with self._lock:
+            # Al iniciar se carga el estado global persistido. Archivo corrupto
+            # ⇒ (0, True) por pin/store.py: falla cerrado, el reset lo repara.
+            self._global_failures, self._locked = self._store.load()
 
     def is_configured(self) -> bool:
         return bool(self._hash_provider())
+
+    def _persistir(self) -> None:
+        """Guarda el estado global ANTES de responder. Error de disco ⇒ aviso y
+        seguir en memoria (no interrumpe la verificación)."""
+        try:
+            self._store.save(self._global_failures, self._locked)
+        except Exception as exc:
+            logger.warning("PIN state could not be persisted (%s)", type(exc).__name__)
 
     def verify(self, pin: str, session_id: str) -> PinResult:
         if not is_valid_pin(pin):
@@ -138,6 +161,7 @@ class PinValidator:
             expected = _parse_hash_spec(spec)[4]
             if hmac.compare_digest(derived, expected):
                 self._global_failures = 0
+                self._persistir()  # el reinicio del global también persiste
                 failures = self._session_failures.get(session_id, 0)
                 return PinResult("OK", failures, max(0, MAX_SESSION_FAILURES - failures), self._locked)
             return self._register_failure(session_id)
@@ -151,12 +175,14 @@ class PinValidator:
         self._global_failures += 1
         if self._global_failures >= MAX_GLOBAL_FAILURES:
             self._locked = True
+        self._persistir()  # cada fallo y cada bloqueo se guardan antes de responder
         return PinResult("WRONG", failures, max(0, MAX_SESSION_FAILURES - failures), self._locked)
 
     def reset_lock(self) -> None:
         with self._lock:
             self._locked = False
             self._global_failures = 0
+            self._persistir()  # el reset del proceso también escribe el estado persistido
 
 
 default_validator = PinValidator()
