@@ -10,7 +10,7 @@ Uso (desde `api/`, en CMD):
   set PYTHONPATH=.
   .venv\\Scripts\\python.exe scripts\\grabar_y_transcribir.py                 # con consentimiento: Groq si hay GROQ_API_KEY
   .venv\\Scripts\\python.exe scripts\\grabar_y_transcribir.py --sin-consent   # fuerza la vía local
-  .venv\Scripts\python.exe scripts\grabar_y_transcribir.py --quien ana --ruido tele   # batería de H3: añade filas
+  .venv\\Scripts\\python.exe scripts\\grabar_y_transcribir.py --quien ana --ruido tele   # batería de H3: añade filas
   (sin audio) al CSV ~/ezpay-h3/resultados.csv, fuera del repo; --csv cambia la ruta
 """
 import argparse
