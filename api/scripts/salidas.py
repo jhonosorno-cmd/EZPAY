@@ -5,6 +5,7 @@ Para cada turno devuelve, en JSON: `transcript` (Contrato B), `intent` y `resolu
 `decision` del motor de ML 2 y el `say` que oiría la persona. Nada se guarda en disco.
 """
 import copy
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from decision.context_io import parse_context
@@ -79,3 +80,36 @@ def salidas_de_la_respuesta(contexto_del_comando: dict, texto: str) -> dict:
         intent = type("I", (), {"amount": Amount(amount["value"], amount["assetCode"], amount["assetScale"]),
                                 "recipient": contexto["intent"]["recipient"]})()
     return {"reply": respuesta.name, "context": contexto, **_salida_del_motor(contexto, intent)}
+
+
+@dataclass(frozen=True)
+class FraseLibre:
+    decir: str
+    pesos: int | None       # monto que se espera entender (None = ninguno)
+    resolucion: str         # RESOLVED | NOT_FOUND | CHOICE (resolución del destinatario; NOT_FOUND también si no se dijo nombre)
+    nota: str = ""
+
+
+# Frases sugeridas para el modo libre de probar_salidas.py: montos y nombres poco usuales.
+FRASES_LIBRES = [
+    FraseLibre("Envíale setenta y tres mil cuatrocientos cincuenta pesos a Laura hija", 73450, "RESOLVED"),
+    FraseLibre("Envíale trece mil novecientos a Laura hija", 13900, "RESOLVED"),
+    FraseLibre("Paga ciento veintiocho mil quinientos a Laura hija", 128500, "RESOLVED"),
+    FraseLibre("Mándale doscientos cuarenta y cinco mil a Laura hija", 245000, "RESOLVED"),
+    FraseLibre("Envíale un millón trescientos mil a Laura hija", 1300000, "RESOLVED"),
+    FraseLibre("Envíale mil quinientos a Laura hija", 1500, "RESOLVED"),
+    FraseLibre("Envíale ocho mil a Laura hija", 8000, "RESOLVED"),
+    FraseLibre("Envíale cincuenta y cinco mil ochocientos a Laura hija", 55800, "RESOLVED"),
+    FraseLibre("Envíale 87.300 a Laura hija", 87300, "RESOLVED", "dilo con cifras"),
+    FraseLibre("Envíale 15 mil 500 a Laura hija", 15500, "RESOLVED", "dilo con cifras"),
+    FraseLibre("Envíale veinte mil a Sebastián", 20000, "NOT_FOUND", "nombre que no está en la agenda"),
+    FraseLibre("Envíale treinta mil a Camila", 30000, "NOT_FOUND", "nombre que no está en la agenda"),
+    FraseLibre("Envíale diez mil a Andrés Felipe", 10000, "NOT_FOUND", "nombre compuesto que no está"),
+    FraseLibre("Envíale quince mil a mi tía", 15000, "CHOICE", "se parece a \"mi hija\": debe preguntar si quisiste decir Laura hija"),
+    FraseLibre("Envíale veinte mil a José", 20000, "RESOLVED", "nombre que sí está"),
+    FraseLibre("Envíale veinte mil a Carmen", 20000, "RESOLVED", "nombre que sí está"),
+    FraseLibre("Envíale veinte mil a Laura", 20000, "CHOICE", "hay dos Lauras: debe preguntar cuál"),
+    FraseLibre("Envíale veinte mil", 20000, "NOT_FOUND", "sin nombre: debe preguntar a quién"),
+    FraseLibre("Envíale a Laura hija", None, "RESOLVED", "sin monto: debe preguntar cuánto"),
+    FraseLibre("Haz lo que quieras con mi plata", None, "NOT_FOUND", "no es un comando: debe decir que no entendió"),
+]
