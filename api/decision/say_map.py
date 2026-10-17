@@ -62,11 +62,8 @@ VOICE_SITUATIONS_NEW = (
 )
 
 # Situaciones NUEVAS que TODAVÍA no existen en voice/phrases.py (PENdientes de Voz).
-# CONFIRM_CHALLENGE y CHALLENGE_RETRY ya están en Voz (17 oct); faltan estas dos.
-PENDING_VOZ_SITUATIONS = frozenset({
-    "CONFIRM_CHALLENGE_OVERRUN",
-    "CHALLENGE_FAILED",
-})
+# Voz ya agregó las 4 del desafío (17 oct): no queda ninguna pendiente.
+PENDING_VOZ_SITUATIONS = frozenset()
 
 _SAME_NAME_AS_REASON = frozenset(VOICE_SITUATIONS_NEW) - {
     "PENDING_PAYMENT_UNCONFIRMED",
