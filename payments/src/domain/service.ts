@@ -324,7 +324,13 @@ export class PaymentsService {
         if (e.kind === 'forbidden') {
           const spent = await this.spent(grant, sender, token)
           const fits = cmp(quote.debitAmount, sub(grant.limit.debitAmount, spent)) <= 0
-          return this.fail(key, fits ? err(401, 'GRANT_INVALID') : err(403, 'LIMIT_EXCEEDED'))
+          if (!fits) return this.fail(key, err(403, 'LIMIT_EXCEEDED'))
+          if (!rotated) {
+            rotated = true
+            try { token = await this.token(grant, true) } catch (re) { return this.fail(key, re as AppError) }
+            continue
+          }
+          return this.fail(key, err(401, 'GRANT_INVALID'))
         }
         // timeout / red / 5xx: resultado incierto
         this.store.setKeyState(key, 'UNKNOWN')
