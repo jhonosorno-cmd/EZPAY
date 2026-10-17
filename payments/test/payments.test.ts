@@ -165,7 +165,7 @@ describe('budget', () => {
     await rejects(env.svc.pay('k', { quoteId: q.quoteId }), 'LIMIT_EXCEEDED', 403)
     expect(opCreates(env)).toBe(0)
   })
-  it('server 403 with exhausted cap -> LIMIT_EXCEEDED; with room -> GRANT_INVALID', async () => {
+  it('server 403 with exhausted cap -> LIMIT_EXCEEDED; with room -> rotate once, still 403 -> GRANT_INVALID', async () => {
     const env = makeEnv()
     const g = await activeGrant(env, 100_00)
     const q1 = await quote(env, g, 30_00)
@@ -173,12 +173,15 @@ describe('budget', () => {
     env.op.spentSequence = [null, cop(80_00)] // el chequeo previo pasa; al recalcular tras el 403 el tope está agotado
     const spentFirst = await env.svc.pay('k1', { quoteId: q1.quoteId })
     expect(spentFirst).toMatchObject({ status: 403, body: { error: { code: 'LIMIT_EXCEEDED' } } })
+    expect(env.op.calls.filter((c) => c === 'rotateToken')).toHaveLength(0)
 
     const q2 = await quote(env, g, 5_00)
-    env.op.createBehavior = ['forbidden']
+    env.op.createBehavior = ['forbidden', 'forbidden']
     env.op.serverSpent = null
     const r2 = await env.svc.pay('k2', { quoteId: q2.quoteId })
     expect(r2).toMatchObject({ status: 401, body: { error: { code: 'GRANT_INVALID' } } })
+    expect(env.op.calls.filter((c) => c === 'rotateToken')).toHaveLength(1)
+    expect(env.op.payments).toHaveLength(0)
   })
   it('spent = max(server, local)', async () => {
     const env = makeEnv()
@@ -300,5 +303,52 @@ describe('secrets', () => {
     const raw = readFileSync(path).toString('latin1')
     expect(raw).not.toContain('ACCESS-TOKEN-SECRET')
     expect(raw).not.toContain('CONTINUE-TOKEN-SECRET')
+  })
+})
+
+describe('403 while the token went stale (D-14a)', () => {
+  it('rotates once and pays when the quote fits', async () => {
+    const env = makeEnv()
+    env.op.forbiddenUntilRotate = true
+    const g = await activeGrant(env, 100_00)
+    const q = await quote(env, g, 10_00)
+    const r = await env.svc.pay('k1', { quoteId: q.quoteId })
+    expect(r.status).toBe(201)
+    expect(env.op.payments).toHaveLength(1)
+    expect(opCreates(env)).toBe(2)
+    expect(env.op.calls.filter((c) => c === 'rotateToken')).toHaveLength(1)
+    expect(env.store.getGrant(g)!.accessToken).toBe('ACCESS-TOKEN-SECRET-2')
+  })
+  it('a 403 that repeats after rotating -> GRANT_INVALID with a single rotate', async () => {
+    const env = makeEnv()
+    env.op.createBehavior = ['forbidden', 'forbidden']
+    const g = await activeGrant(env, 100_00)
+    const q = await quote(env, g, 10_00)
+    const r = await env.svc.pay('k1', { quoteId: q.quoteId })
+    expect(r).toMatchObject({ status: 401, body: { error: { code: 'GRANT_INVALID' } } })
+    expect(env.op.calls.filter((c) => c === 'rotateToken')).toHaveLength(1)
+    expect(env.op.payments).toHaveLength(0)
+  })
+  it('a 403 from an exhausted cap -> LIMIT_EXCEEDED without rotating', async () => {
+    const env = makeEnv()
+    const g = await activeGrant(env, 100_00)
+    const q = await quote(env, g, 30_00)
+    env.op.spentSequence = [null, cop(80_00)]
+    env.op.createBehavior = ['forbidden']
+    const r = await env.svc.pay('k1', { quoteId: q.quoteId })
+    expect(r).toMatchObject({ status: 403, body: { error: { code: 'LIMIT_EXCEEDED' } } })
+    expect(env.op.calls.filter((c) => c === 'rotateToken')).toHaveLength(0)
+    expect(opCreates(env)).toBe(1)
+  })
+  it('the same Idempotency-Key after the rotation success returns the same response without charging again', async () => {
+    const env = makeEnv()
+    env.op.forbiddenUntilRotate = true
+    const g = await activeGrant(env, 100_00)
+    const q = await quote(env, g, 10_00)
+    const first = await env.svc.pay('k1', { quoteId: q.quoteId })
+    const again = await env.svc.pay('k1', { quoteId: q.quoteId })
+    expect(again).toEqual(first)
+    expect(env.op.payments).toHaveLength(1)
+    expect((await env.svc.getGrant(g)).remaining).toEqual(cop(90_00))
   })
 })
