@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { parse } from 'yaml'
 import { interactHash } from '../src/crypto.js'
 import { createApp } from '../src/http/app.js'
-import { LAURA, MARTA, cop, makeEnv } from './fakes.js'
+import { LAURA, MARTA, activeGrant, cop, makeEnv } from './fakes.js'
 
 const contractPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'openapi', 'contract-a.yaml')
 const contract: { components: { schemas: { ErrorCode: { enum: string[] } } } } = parse(readFileSync(contractPath, 'utf8'))
@@ -99,8 +99,10 @@ describe('every emitted error code is in the Contract A enum', () => {
     const quoteBody = { grantId: 'g_unknown', receiver: LAURA, receiveAmount: cop(1) }
     codes.push(await emit(http.post('/v1/quotes').send(quoteBody) as any))
     const pending = await pendingGrant(env)
+    const activeId = await activeGrant(env)
+    codes.push(await emit(http.post(`/v1/grants/${activeId}/continue`).send({ interactRef: 'REF', hash: 'x' }) as any))
     codes.push(await emit(http.post('/v1/quotes').send({ grantId: pending.grantId, receiver: LAURA, receiveAmount: cop(1) }) as any))
-    codes.push(await emit(http.post('/v1/quotes').send({ grantId: pending.grantId, receiver: 'https://ilp.test/none', receiveAmount: cop(1) }) as any))
+    codes.push(await emit(http.post('/v1/quotes').send({ grantId: activeId, receiver: 'https://ilp.test/none', receiveAmount: cop(1) }) as any))
 
     codes.push(await emit(http.post('/v1/payments').send({ quoteId: 'q_nope' }) as any))
     codes.push(await emit(http.post('/v1/payments').set('Idempotency-Key', 'k').send({ quoteId: 'q_nope' }) as any))
