@@ -12,7 +12,7 @@ const MicIcon = () => (
 // Push-to-talk: se mantiene presionado para hablar. Nunca graba mientras habla el TTS.
 export function MicButton({ disabled, onAudio }: { disabled: boolean; onAudio: (a: Blob) => void }) {
   // Menos de MIN_RECORDING_MS es un toque accidental: no se envía.
-  const { status, start, stop } = useRecorder((a, ms) => { if (ms >= MIN_RECORDING_MS) onAudio(a) })
+  const { status, start, stop } = useRecorder((a, ms) => { if (ms >= MIN_RECORDING_MS) onAudio(a) }, undefined, true)
   const [ttsOn, setTtsOn] = useState(isSpeaking())
   useEffect(() => onSpeakingChange(setTtsOn), [])
 

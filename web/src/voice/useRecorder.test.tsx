@@ -13,7 +13,7 @@ class FakeMediaRecorder {
   onstart: (() => void) | null = null
   onstop: (() => void) | null = null
   ondataavailable: ((e: { data: Blob }) => void) | null = null
-  constructor(public stream: { getTracks: () => { stop: ReturnType<typeof vi.fn> }[] }) {
+  constructor(public stream: { getTracks: () => FakeTrack[] }) {
     FakeMediaRecorder.instances.push(this)
   }
   start() { this.state = "recording" }
@@ -27,8 +27,10 @@ const deferred = <T,>(): Deferred<T> => {
   return { promise: new Promise<T>((r) => (resolve = r)), resolve }
 }
 
+type FakeTrack = { stop: ReturnType<typeof vi.fn>; enabled: boolean; readyState: string }
+
 const fakeStream = () => {
-  const tracks = [vi.fn(), vi.fn()].map((stop) => ({ stop }))
+  const tracks: FakeTrack[] = [vi.fn(), vi.fn()].map((stop) => ({ stop, enabled: true, readyState: "live" }))
   return { getTracks: () => tracks }
 }
 
@@ -159,5 +161,105 @@ describe("useRecorder", () => {
     await act(async () => { void result.current.start() })
     await flush()
     expect(result.current.status).toBe("denied")
+  })
+
+  // Micrófono abierto entre grabaciones (keepOpen): la primera palabra ya no se pierde al abrirlo.
+  describe("keepOpen", () => {
+    const record = async (result: { current: ReturnType<typeof useRecorder> }, n: number) => {
+      await act(async () => { void result.current.start() })
+      await flush()
+      await act(async () => { FakeMediaRecorder.instances[n]!.onstart?.() })
+    }
+
+    it("11: al parar deja las pistas abiertas pero desactivadas (sin captar audio)", async () => {
+      const stream = fakeStream()
+      userMedia(() => Promise.resolve(stream as unknown as MediaStream))
+      const { result } = renderHook(() => useRecorder(vi.fn(), 15_000, true))
+      await record(result, 0)
+      expect(stream.getTracks().every((t) => t.enabled)).toBe(true)
+      await act(async () => { result.current.stop() })
+      for (const t of stream.getTracks()) {
+        expect(t.stop).not.toHaveBeenCalled()
+        expect(t.enabled).toBe(false)
+      }
+    })
+
+    it("12: la segunda grabación reutiliza el stream: getUserMedia se llama una sola vez", async () => {
+      const stream = fakeStream()
+      const g = vi.fn(() => Promise.resolve(stream as unknown as MediaStream))
+      vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: g }, vibrate: undefined })
+      const onAudio = vi.fn()
+      const { result } = renderHook(() => useRecorder(onAudio, 15_000, true))
+      await record(result, 0)
+      await act(async () => { result.current.stop() })
+      await record(result, 1)
+      expect(g).toHaveBeenCalledTimes(1)
+      expect(stream.getTracks().every((t) => t.enabled)).toBe(true)
+      await act(async () => { result.current.stop() })
+      expect(onAudio).toHaveBeenCalledTimes(2)
+    })
+
+    it("13: stop durante preparing no entrega audio y deja el stream desactivado, no cerrado", async () => {
+      const stream = fakeStream()
+      userMedia(() => Promise.resolve(stream as unknown as MediaStream))
+      const onAudio = vi.fn()
+      const { result } = renderHook(() => useRecorder(onAudio, 15_000, true))
+      await act(async () => { void result.current.start() })
+      await flush()
+      await act(async () => { result.current.stop() })
+      expect(onAudio).not.toHaveBeenCalled()
+      expect(result.current.status).toBe("idle")
+      for (const t of stream.getTracks()) {
+        expect(t.stop).not.toHaveBeenCalled()
+        expect(t.enabled).toBe(false)
+      }
+    })
+
+    it("14: al desmontar se detienen todas las pistas", async () => {
+      const stream = fakeStream()
+      userMedia(() => Promise.resolve(stream as unknown as MediaStream))
+      const { result, unmount } = renderHook(() => useRecorder(vi.fn(), 15_000, true))
+      await record(result, 0)
+      await act(async () => { result.current.stop() })
+      unmount()
+      for (const t of stream.getTracks()) expect(t.stop).toHaveBeenCalled()
+    })
+
+    it("15: si la pestaña se oculta se cierra el micrófono y la siguiente grabación lo reabre", async () => {
+      const stream = fakeStream()
+      const g = vi.fn(() => Promise.resolve(stream as unknown as MediaStream))
+      vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: g }, vibrate: undefined })
+      const { result } = renderHook(() => useRecorder(vi.fn(), 15_000, true))
+      await record(result, 0)
+      await act(async () => { result.current.stop() })
+      Object.defineProperty(document, "hidden", { configurable: true, value: true })
+      await act(async () => { document.dispatchEvent(new Event("visibilitychange")) })
+      for (const t of stream.getTracks()) expect(t.stop).toHaveBeenCalled()
+      Object.defineProperty(document, "hidden", { configurable: true, value: false })
+      await record(result, 1)
+      expect(g).toHaveBeenCalledTimes(2)
+    })
+
+    it("16: un stream con pistas terminadas (micrófono desconectado) se vuelve a pedir", async () => {
+      const first = fakeStream()
+      const second = fakeStream()
+      const g = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second)
+      vi.stubGlobal("navigator", { ...navigator, mediaDevices: { getUserMedia: g }, vibrate: undefined })
+      const { result } = renderHook(() => useRecorder(vi.fn(), 15_000, true))
+      await record(result, 0)
+      await act(async () => { result.current.stop() })
+      for (const t of first.getTracks()) t.readyState = "ended"
+      await record(result, 1)
+      expect(g).toHaveBeenCalledTimes(2)
+    })
+
+    it("17: sin keepOpen (enrolamiento) sigue apagando el micrófono al parar", async () => {
+      const stream = fakeStream()
+      userMedia(() => Promise.resolve(stream as unknown as MediaStream))
+      const { result } = renderHook(() => useRecorder(vi.fn()))
+      await record(result, 0)
+      await act(async () => { result.current.stop() })
+      for (const t of stream.getTracks()) expect(t.stop).toHaveBeenCalled()
+    })
   })
 })
