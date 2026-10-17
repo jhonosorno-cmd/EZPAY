@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import CORS_ORIGIN, LOG_NAME, PLACEHOLDER_INTERACT_URL, asset_code, asset_scale
-from .orchestrator import Deps, default_deps, handle_turn
+from .orchestrator import Orchestrator, TurnError
 from .sessions import Session, SessionNotFound, SessionStore
 from .states import TurnState
 from . import turns as turn_logic
@@ -78,9 +78,16 @@ def create_app(
     store = SessionStore()
     budget: dict = {}
     enrolled = {"value": False}
-    deps: Deps = default_deps(transcriber=transcriber, verifier=verifier, clock=clock)
+    orchestrator = Orchestrator(
+        transcriber=transcriber,
+        verifier=verifier,
+        clock=clock,
+        payments=payments,
+        agenda_path=agenda_path,
+        pin_validator=pin_validator,
+    )
     app.state.session_store = store
-    app.state.deps = deps
+    app.state.orchestrator = orchestrator
     app.state.payments = payments
     app.state.agenda_path = agenda_path
     app.state.pin_validator = pin_validator
@@ -95,6 +102,7 @@ def create_app(
     @app.middleware("http")
     async def safe_logging(request: Request, call_next):
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+        request.state.request_id = request_id
         t0 = time.perf_counter()
         response = await call_next(request)
         duration_ms = round((time.perf_counter() - t0) * 1000)
@@ -207,7 +215,17 @@ def create_app(
         session: Session = store.get(sessionId) if sessionId else store.create()
 
         audio_bytes = audio.file.read() if audio is not None else None
-        result = handle_turn(session, audio_bytes, text, deps)
+        try:
+            result = orchestrator.handle_turn(
+                session,
+                audio_bytes=audio_bytes,
+                text=text or None,
+                request_id=getattr(request.state, "request_id", None),
+            )
+        except TurnError as exc:
+            return _error(exc.status, exc.code, exc.message)
+        except Exception:  # nada del request en la respuesta ni en los logs
+            return _error(500, "INTERNAL_ERROR", "Error interno")
         request.state.turn_state = result["state"]
         return result
 

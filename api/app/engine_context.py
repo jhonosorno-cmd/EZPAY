@@ -94,16 +94,25 @@ def build_context(
     pending_payment: Optional[dict],
     clock,
     agenda=None,
+    intent: Optional[dict] = None,
+    resolution: Optional[dict] = None,
     reply: Optional[str] = None,
     unclear_replies: int = 0,
     pin_result=None,
 ) -> dict:
-    """El dict completo que consume decision.decide_dict; fail-closed por su cuenta."""
-    intent = intent_dict(input_text)
+    """El dict completo que consume decision.decide_dict; fail-closed por su cuenta.
+
+    `intent` y `resolution` pueden venir precomputados por el orquestador (la
+    quote se pide antes del motor y necesita la intención ya extraída).
+    """
+    if intent is None:
+        intent = intent_dict(input_text)
+    if resolution is None:
+        resolution = resolution_dict(intent, agenda)
     return {
         "phase": phase,
         "intent": intent,
-        "resolution": resolution_dict(intent, agenda),
+        "resolution": resolution,
         "voice": voice_dict(voice_status, voice_score),
         "enrolled": enrolled,
         "hasBudgetGrant": has_budget_grant,

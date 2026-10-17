@@ -85,7 +85,8 @@ class FakeNode:
             "node_base_url": BASE,
             "asset_code": ASSETS["asset_code"],
             "asset_scale": ASSETS["asset_scale"],
-            "http": httpx.Client(transport=httpx.MockTransport(self.handle)),
+            # despacho dinámico: los escenarios pueden reemplazar self.handle
+            "http": httpx.Client(transport=httpx.MockTransport(lambda request: self.handle(request))),
             "sleep": lambda seconds: None,
             "clock": self.clock_value,
         }
@@ -106,7 +107,10 @@ class FakeNode:
         return self.requests[-1][2]
 
     def last_header(self, name: str) -> str | None:
-        return self.requests[-1][3].get(name)
+        for key, value in self.requests[-1][3].items():
+            if key.lower() == name.lower():
+                return value
+        return None
 
     # ------------------------------------------------------------------ handler
     def _respond(self, path: str, method: str, status: int, body) -> httpx.Response:

@@ -58,6 +58,9 @@ def _convert(node):
 def _response_schema(method: str, path: str, status: int):
     op = _DOC["paths"][path][method.lower()]
     resp = op["responses"][str(status)]
+    if "$ref" in resp:  # p. ej. InternalError es un $ref a components/responses
+        name = resp["$ref"].rsplit("/", 1)[-1]
+        resp = _DOC["components"]["responses"][name]
     schema = resp["content"]["application/json"]["schema"]
     return _convert(schema)
 

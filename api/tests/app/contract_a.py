@@ -72,6 +72,7 @@ def _match_path(concrete: str, method: str) -> str:
 
 
 def response_schema(path: str, method: str, status: int):
+    method = method.lower()
     responses = CONTRACT["paths"][_match_path(path, method)][method]["responses"]
     node = responses[str(status)]
     schema = node.get("content", {}).get("application/json", {}).get("schema")

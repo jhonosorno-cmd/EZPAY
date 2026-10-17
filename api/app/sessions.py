@@ -19,7 +19,18 @@ class Session:
         self.id = session_id
         self.created_at = time.monotonic()
         self.state = TurnState.AWAITING_COMMAND
-        self.pending_authorization = False
+        self.pending_authorization: str | None = None  # "budget" | "one_off"
+        self.grant_id: str | None = None  # el grant esperando callback; NUNCA tokens
+        self.intent: dict | None = None  # intención pendiente entre turnos
+        self.contact: dict | None = None  # contacto resuelto (alias, nombre, wallet)
+        self.quote: dict | None = None  # quote del cliente entre turnos
+        self.options: list | None = None  # opciones de elección de destinatario
+        self.voice: dict | None = None  # resultado de la verificación del comando (D4)
+        self.enrolled: bool = False
+        self.unclear_replies: int = 0
+        self.idempotency_key: str | None = None  # una clave por quote (reintentos la reutilizan)
+        self.payment_id: str | None = None
+        self.pending_payment: dict | None = None  # pago sin resolver: recipient/createdAt/status/...
 
     def expired(self) -> bool:
         return time.monotonic() - self.created_at > SESSION_TTL_SECONDS
