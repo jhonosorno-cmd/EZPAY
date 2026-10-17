@@ -216,8 +216,8 @@ igual**: mismo `debitAmount` de la quote que excedió, con `limit.interval` `R1/
 
 #### Scenario: Vence el grant puntual
 - **WHEN** `POST /v1/payments` con el grant puntual responde `401 GRANT_INVALID`
-- **THEN** el cliente pide otro grant puntual con el mismo `debitAmount` de la quote, con
-  `limit.interval` `R1/<hoy 00:00:00Z>/P1W`, y el turno pasa a `AWAITING_AUTHORIZATION`
+- **THEN** el cliente pide otro grant puntual con el mismo `debitAmount` de la quote y sin
+  `interval`, y el turno pasa a `AWAITING_AUTHORIZATION`
 
 ### Requirement: Sin grant de presupuesto activo (SEG-1)
 Si llega un comando de pago y no hay un grant de presupuesto `ACTIVE`, el cliente MUST NOT
