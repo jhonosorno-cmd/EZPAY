@@ -28,6 +28,7 @@ import sounddevice as sd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.audio_nivel import nivel, resolver_dispositivo  # noqa: E402
+from scripts.revision import revisar  # noqa: E402
 from scripts.bateria import agregar_fila, evaluar, ruta_por_defecto, seleccionar_frases  # noqa: E402
 from voice.config import SAMPLE_RATE  # noqa: E402
 from voice.engines import _pcm_to_wav_bytes, build_default_engines  # noqa: E402
@@ -66,7 +67,7 @@ def _esperar_espacio() -> str:
             return "q"
 
 
-def _grabar_hasta_espacio() -> np.ndarray:
+def _grabar_una_vez() -> np.ndarray:
     """Graba hasta otro ESPACIO; entrega PCM float32 16 kHz mono en memoria. Micrófono: `set EZPAY_MICROFONO=N`."""
     indice = resolver_dispositivo(os.environ.get("EZPAY_MICROFONO"), sd.query_devices())
     dispositivo = sd.query_devices(indice) if indice is not None else sd.query_devices(kind="input")
@@ -99,6 +100,17 @@ def _grabar_hasta_espacio() -> np.ndarray:
     # Sin normalizar: el navegador tampoco lo hace, y subir el volumen amplifica el ruido de fondo.
     print(f"  Nivel: {nivel(pcm).texto()}")
     return pcm
+
+
+def _escuchar(pcm: np.ndarray) -> None:
+    """Reproduce la grabación por los altavoces, desde la memoria (nada se guarda)."""
+    sd.play(pcm, SAMPLE_RATE)
+    sd.wait()
+
+
+def _grabar_hasta_espacio() -> np.ndarray:
+    """Graba y deja escuchar (E), repetir (R) o usar (ESPACIO) la grabación antes de seguir."""
+    return revisar(_grabar_una_vez, msvcrt.getwch, _escuchar, print)
 
 
 def main() -> int:
