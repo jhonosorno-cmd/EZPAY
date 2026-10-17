@@ -10,6 +10,8 @@ Uso (desde `api/`, en CMD):
   set PYTHONPATH=.
   .venv\\Scripts\\python.exe scripts\\grabar_y_transcribir.py                 # con consentimiento: Groq si hay GROQ_API_KEY
   .venv\\Scripts\\python.exe scripts\\grabar_y_transcribir.py --sin-consent   # fuerza la vía local
+  .venv\Scripts\python.exe scripts\grabar_y_transcribir.py --quien ana --ruido tele   # batería de H3: añade filas
+  (sin audio) al CSV ~/ezpay-h3/resultados.csv, fuera del repo; --csv cambia la ruta
 """
 import argparse
 import msvcrt
@@ -24,6 +26,7 @@ import sounddevice as sd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts.bateria import FRASES, agregar_fila, evaluar, ruta_por_defecto  # noqa: E402
 from voice.config import SAMPLE_RATE  # noqa: E402
 from voice.engines import _pcm_to_wav_bytes, build_default_engines  # noqa: E402
 from voice.transcribe import TranscribeInputError, transcribe  # noqa: E402
@@ -42,21 +45,6 @@ def _cargar_env() -> None:
 
 
 MAX_SEGUNDOS = 15  # igual que el tope del navegador
-
-# (qué decir, qué se espera que salga)
-FRASES = [
-    ("Envíale veinte mil a Laura hija", "orden de pago"),
-    ("Mándale cincuenta mil pesos a mi mamá", "orden de pago"),
-    ("Paga ciento cincuenta mil a Laura hija", "orden de pago"),
-    ("Sí", "afirmativo"),
-    ("No", "negativo"),
-    ("Confirmo", "afirmativo"),
-    ("Cancela", "negativo"),
-    ("Mmm... no sé", "respuesta poco clara"),
-    ("(silencio, no digas nada)", "texto vacío y hadSpeech False"),
-    ("Dilo con ruido: pon música o habla una tele y di 'envíale veinte mil a Laura hija'", "orden de pago con ruido"),
-]
-
 
 def _esperar_espacio() -> str:
     """Bloquea hasta ESPACIO ('espacio') o Q ('q')."""
@@ -99,17 +87,21 @@ def _grabar_hasta_espacio() -> np.ndarray:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Graba y transcribe en vivo (sin guardar audio).")
+    parser.add_argument("--ruido", default="", help="condición de la tanda: silencio, tele, lejos...")
+    parser.add_argument("--quien", default="", help="quién habla (para el CSV)")
+    parser.add_argument("--csv", default="", help="ruta del CSV de resultados (por defecto ~/ezpay-h3/resultados.csv)")
     parser.add_argument("--sin-consent", action="store_true", help="fuerza el motor local (sin Groq)")
     args = parser.parse_args()
     _cargar_env()
     print("GROQ_API_KEY:", "definida" if os.environ.get("GROQ_API_KEY") else "NO definida (se usará el motor local)")
     engines = build_default_engines()
+    ruta = Path(args.csv) if args.csv else ruta_por_defecto()
+    print(f"Resultados (sin audio) en: {ruta}")
     print(f"Modo: {'LOCAL (sin consentimiento)' if args.sin_consent else 'con consentimiento (Groq si hay GROQ_API_KEY, si no local)'}")
     print("ESPACIO = empezar/detener, Q = salir.\n")
 
-    for i, (decir, esperado) in enumerate(FRASES, 1):
-        print(f"[{i}/{len(FRASES)}] DI: \"{decir}\"")
-        print(f"       Esperado: {esperado}")
+    for i, frase in enumerate(FRASES, 1):
+        print(f"[{i}/{len(FRASES)}] DI: \"{frase.decir}\"")
         print("  Pulsa ESPACIO para empezar a grabar (Q para salir)...", flush=True)
         if _esperar_espacio() == "q":
             break
@@ -118,6 +110,10 @@ def main() -> int:
             r = transcribe(_pcm_to_wav_bytes(pcm), "terminal-test",
                            consent_external=not args.sin_consent, engines=engines)
             print(f"  TEXTO : \"{r.text}\"   (motor: {r.engine.value}, hubo voz: {r.had_speech})")
+            resultado = evaluar(frase, r.text, r.had_speech)
+            agregar_fila(ruta, quien=args.quien, ruido=args.ruido, numero=i, frase=frase, texto=r.text,
+                         motor=r.engine.value, hubo_voz=r.had_speech, resultado=resultado)
+            print(f"  VEREDICTO: {resultado.veredicto}   (el sistema entendió: {resultado.interpretado})")
             if r.engine.value == "local" and not args.sin_consent:
                 try:  # diagnóstico: por qué Groq no respondió (los errores del proveedor no incluyen la llave)
                     engines.remote.transcribe(pcm)
