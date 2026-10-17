@@ -9,7 +9,9 @@ el consentimiento, graba las tres muestras y muestra el resultado. Origen: PRIV-
 ## ADDED Requirements
 
 ### Requirement: Consentimiento antes de grabar (PRIV-2)
-La web app SHALL mostrar el texto de consentimiento escrito por ML 2 (dato biométrico sensible, para qué se usa, cómo se borra y, si el equipo aprueba C-3 de ML 1, que el audio de cada comando se envía a un proveedor externo para transcribirse) y leerlo en voz alta. La casilla de aceptación MUST empezar sin marcar, y sin aceptarla la web app MUST NOT encender el micrófono ni enviar muestras.
+La web app SHALL mostrar el texto de consentimiento escrito por ML 2 (dato biométrico sensible, para qué se usa, cómo se borra y, decidido por el equipo: un solo consentimiento que cubre la huella de voz y el envío del audio de cada comando a un proveedor externo para transcribirse) y leerlo en voz alta. La casilla de aceptación MUST empezar sin marcar, y sin aceptarla la web app MUST NOT encender el micrófono ni enviar muestras.
+
+> Registro "esperaba X, pasó Y, cambio Z" (16 oct): esperaba decidir si el audio iba al proveedor externo solo si el equipo aprobaba C-3 de ML 1, con una casilla condicional; ML 2 entregó los textos definitivos con un único consentimiento (opción B) que cubre la huella y el proveedor externo con la misma casilla y el mismo `consent=true`. Cambio: el requisito describe el consentimiento único y no se agrega ningún campo al Contrato B.
 
 #### Scenario: Sin aceptar
 - **WHEN** la usuaria no marca la casilla de consentimiento

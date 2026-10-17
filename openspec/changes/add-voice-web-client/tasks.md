@@ -1,7 +1,7 @@
 ## 1. Aprobación del equipo
 
 - [x] 1.1 El equipo decide los cambios de contrato que este spec adopta (Pagos D-1 y D-2, ML 1 C-6, ML 2 C-3) y la contradicción F-1
-- [ ] 1.2 ML 2 entrega el texto del consentimiento y las tres frases del enrolamiento
+- [x] 1.2 ML 2 entrega el texto del consentimiento y las tres frases del enrolamiento
 - [ ] 1.3 Se validan los specs con `openspec validate add-voice-web-client --strict`
 
 ## 2. Antes de escribir código (viernes 16 oct, temprano)
