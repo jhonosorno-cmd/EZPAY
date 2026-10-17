@@ -98,15 +98,15 @@ def test_jerga_con_tabla_configurada():
 
 # --- Decimales que sobran
 def test_mas_decimales_que_la_escala():
-    assert err("10,505") == AmountError.TOO_MANY_DECIMALS
+    assert err("10,5051") == AmountError.TOO_MANY_DECIMALS
 
 
 def test_caso_que_un_float_redondea():
-    assert err("1,005") == AmountError.TOO_MANY_DECIMALS
+    assert err("1,0051") == AmountError.TOO_MANY_DECIMALS
 
 
 def test_cero_sobrante():
-    assert err("10,500") == AMBIG  # antes 10,50; cambio: puede ser 10.500 con coma de miles (ver "Coma con tres dígitos")
+    assert ok("10,500").value == "1050000"  # antes 10,50; cambio: coma con tres dígitos = miles (ver "Coma de miles")
 
 
 def test_escala_cero_con_decimales():
@@ -357,11 +357,13 @@ def test_h8_amounts_no_usa_float_round_ni_decimal():
     assert _forbidden(inspect.getsource(amounts_module)) == []
 
 
-# --- Coma con tres dígitos: Groq la escribe como separador de miles ("$150,000"). Esperaba 150.000; pasaba 150 pesos.
-# Cambio z: es ambigua y se vuelve a preguntar (antes "20,000" se leía como 20 pesos, H-4).
-@pytest.mark.parametrize("text", ["20,000", "1,000", "150,000", "$150,000", "999,990", "10,500", "50,000 pesos"])
-def test_coma_seguida_de_tres_digitos_es_ambigua(text):
-    assert err(text) == AMBIG
+# --- Coma de miles: Groq escribe "73,450" o "$150,000". Esperaba 73.450; pasaba 73,45 pesos y luego "ambiguo".
+# Cambio: una coma seguida de exactamente tres dígitos (con 1 a 3 enteros distintos de cero) es separador de miles.
+@pytest.mark.parametrize("text,value", [("20,000", "2000000"), ("1,000", "100000"), ("150,000", "15000000"),
+                                         ("$150,000", "15000000"), ("999,990", "99999000"), ("10,500", "1050000"),
+                                         ("73,450", "7345000"), ("73,450 pesos", "7345000"), ("50,000 pesos", "5000000")])
+def test_coma_seguida_de_tres_digitos_es_separador_de_miles(text, value):
+    assert ok(text).value == value
 
 
 @pytest.mark.parametrize("text,value", [("10,50", "1050"), ("10,5", "1050"), ("1,5", "150"), ("0,500", "50"),

@@ -1,6 +1,6 @@
 # 18 — H3, desafío de confirmación, arreglos con voz real y entrega a `main`
 
-- Fecha de los prompts: 2026-10-17 (de ~01:40 a ~07:55)
+- Fecha de los prompts: 2026-10-17 (de ~01:40 a ~10:00)
 - Autor: Sebasruiz00 (rol Voz, ML 1)
 - Contexto: continúa el archivo 17 (H2). Sebastián hace la batería de H3 solo con su voz, el equipo aprueba el desafío de confirmación con
   una frase del banco (`verificacion-ml2/confirmacion-con-desafio.md`, de Daniel; el texto que recibió se deja en esa ruta y no se
@@ -102,9 +102,51 @@ Redacta el mensaje corto para Alex y Daniel con el enlace del PR #23 y qué debe
 Empecemos a hacer la mas importante
 ````
 
+## Mensaje 16 (probar con montos y nombres poco usuales)
+
+````text
+Necesito empezar a hacer pruebas, para ver que si pueda entender todo, entonces dame montos no conocidos, nombres no conocidos
+````
+
+## Mensaje 17 (que la prueba diga qué decir)
+
+````text
+Pero que en la prueba me diga que debo decir,
+````
+
+## Mensaje 18 (ganancia del micrófono y monto con coma)
+
+````text
+2 cosas, creo que la ganacia no esta bien ajustada, por que tengo el microfono d mis audifonos y ni asi toma bien los datos, revisemos eso para que quede mejor, y tambien por que 73.450 no lo entiendo y dice eso, o bueno lo entiende pero no lo acepta
+````
+
+## Mensaje 19 (las dos correcciones)
+
+````text
+Sí, haz las dos: monto con coma de miles y el ajuste del script (espera antes de "habla ahora", nivel del micrófono y selección de dispositivo), con pruebas primero y commits separados.
+````
+
+## Mensaje 20 (escuchar y regrabar)
+
+````text
+Debes permitirme volver a grabar, escucharlo tambien
+````
+
+## Mensaje 21 (la demo se graba en una Mac)
+
+````text
+Ten en cuenta que donde vamos a grabar es una mac, entonces debemos dejar esto casi igual que una mac para que el microfono funcione
+````
+
+## Mensaje 22 (cierre)
+
+````text
+Haz todo lo necesario para dejar todo listo
+````
+
 ---
 
-Registro: 2026-10-17 08:30 · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) · Origen: `api/scripts/bateria.py`, `desafio.py`, `salidas.py`,
+Registro: 2026-10-17 09:52 · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) · Origen: `api/scripts/bateria.py`, `desafio.py`, `salidas.py`, `audio_nivel.py`, `microfonos.py`, `revision.py`,
 `grabar_y_transcribir.py`, `probar_desafio.py`, `probar_salidas.py`, `api/voice/challenge.py` y `challenge_phrases.json`, los cambios de `phrases.py`,
 `amounts.py` y `config.py`, el spec `confirmation-challenge`, el PR #23 (`H2` a `main`), `api/voice/RESULTADOS.md` y las filas de `AI_USAGE.md`
 de esos archivos.

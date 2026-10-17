@@ -116,8 +116,9 @@ def _numeric_token(tok: str, scale: int) -> tuple[str, str] | AmountError:
     int_part, _, frac = tok.partition(",")
     if "," in tok and not _is_ascii_digits(frac):
         return AmountError.AMBIGUOUS_AMOUNT
-    if len(frac) == 3 and frac[2] == "0" and _is_ascii_digits(int_part) and len(int_part) <= 3 and int(int_part) > 0:
-        return AmountError.AMBIGUOUS_AMOUNT        # "150,000": la transcripción suele usar la coma para miles
+    if len(frac) == 3 and _is_ascii_digits(frac) and _is_ascii_digits(int_part) and len(int_part) <= 3 \
+            and int(int_part) > 0:
+        int_part, frac = int_part + frac, ""       # "73,450": la transcripción usa la coma como separador de miles
     if "." in int_part:
         if not THOUSANDS.fullmatch(int_part):
             return AmountError.AMBIGUOUS_AMOUNT
