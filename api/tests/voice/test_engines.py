@@ -376,3 +376,12 @@ def test_fabrica_cablea_los_motores_reales():
     assert isinstance(engines.local, FasterWhisperLocal)
     assert engines.sleep is time.sleep
     assert engines.local._model is None      # perezosa: nada se descarga al construir
+
+
+def test_filtro_una_palabra_corta_como_si_pasa():
+    # "Sí" dura ~0,15 s de energía; con el mínimo de 0,25 s el filtro la cortaba y no se podía confirmar.
+    audio = np.random.default_rng(5).normal(0.0, 0.004, SAMPLE_RATE * 3).astype("float32")
+    t = np.arange(int(SAMPLE_RATE * 0.15), dtype="float32") / SAMPLE_RATE
+    inicio = SAMPLE_RATE
+    audio[inicio:inicio + t.size] += (0.12 * np.sin(2 * np.pi * 300.0 * t)).astype("float32")
+    assert EnergySpeechFilter().has_speech(audio) is True

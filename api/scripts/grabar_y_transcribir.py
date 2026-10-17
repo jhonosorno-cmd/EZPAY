@@ -26,7 +26,7 @@ import sounddevice as sd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.bateria import FRASES, agregar_fila, evaluar, ruta_por_defecto  # noqa: E402
+from scripts.bateria import agregar_fila, evaluar, ruta_por_defecto, seleccionar_frases  # noqa: E402
 from voice.config import SAMPLE_RATE  # noqa: E402
 from voice.engines import _pcm_to_wav_bytes, build_default_engines  # noqa: E402
 from voice.transcribe import TranscribeInputError, transcribe  # noqa: E402
@@ -46,8 +46,15 @@ def _cargar_env() -> None:
 
 MAX_SEGUNDOS = 15  # igual que el tope del navegador
 
+def _vaciar_teclado() -> None:
+    """Descarta teclas acumuladas (por ejemplo un comando pegado mientras corría el script)."""
+    while msvcrt.kbhit():
+        msvcrt.getwch()
+
+
 def _esperar_espacio() -> str:
     """Bloquea hasta ESPACIO ('espacio') o Q ('q')."""
+    _vaciar_teclado()
     while True:
         tecla = msvcrt.getwch().lower()
         if tecla == " ":
@@ -61,6 +68,7 @@ def _grabar_hasta_espacio() -> np.ndarray:
     dispositivo = sd.query_devices(kind="input")
     rate_in = int(dispositivo["default_samplerate"])
     trozos: list[np.ndarray] = []
+    _vaciar_teclado()
 
     def callback(indata, frames, time_info, status):  # noqa: ARG001
         trozos.append(indata.copy())
@@ -88,20 +96,25 @@ def _grabar_hasta_espacio() -> np.ndarray:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Graba y transcribe en vivo (sin guardar audio).")
     parser.add_argument("--ruido", default="", help="condición de la tanda: silencio, tele, lejos...")
+    parser.add_argument("--frases", default="", help="cuáles frases pedir, por número: 1,3,5-7 (por defecto todas)")
     parser.add_argument("--quien", default="", help="quién habla (para el CSV)")
     parser.add_argument("--csv", default="", help="ruta del CSV de resultados (por defecto ~/ezpay-h3/resultados.csv)")
     parser.add_argument("--sin-consent", action="store_true", help="fuerza el motor local (sin Groq)")
     args = parser.parse_args()
     _cargar_env()
     print("GROQ_API_KEY:", "definida" if os.environ.get("GROQ_API_KEY") else "NO definida (se usará el motor local)")
+    try:
+        frases = seleccionar_frases(args.frases)
+    except ValueError as err:
+        parser.error(str(err))
     engines = build_default_engines()
     ruta = Path(args.csv) if args.csv else ruta_por_defecto()
     print(f"Resultados (sin audio) en: {ruta}")
     print(f"Modo: {'LOCAL (sin consentimiento)' if args.sin_consent else 'con consentimiento (Groq si hay GROQ_API_KEY, si no local)'}")
     print("ESPACIO = empezar/detener, Q = salir.\n")
 
-    for i, frase in enumerate(FRASES, 1):
-        print(f"[{i}/{len(FRASES)}] DI: \"{frase.decir}\"")
+    for orden, (i, frase) in enumerate(frases, 1):
+        print(f"[{orden}/{len(frases)}] DI: \"{frase.decir}\"")
         print("  Pulsa ESPACIO para empezar a grabar (Q para salir)...", flush=True)
         if _esperar_espacio() == "q":
             break
