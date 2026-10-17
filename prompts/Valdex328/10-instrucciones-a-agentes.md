@@ -500,6 +500,59 @@ Orden de la sesión padre (Daniel, ML 2): persistir el contador GLOBAL de fallos
 
 Las instrucciones al Constructor de Specs de esta etapa (plan de experimentos, resultados del 17 oct, X-6 y frase de la demo con la divisa) actualizaron los artifacts que luego se copiaron a `openspec/changes/add-decision-engine/`; sus decisiones están en `prompts/Valdex328/12-rama-h2-experimentos-y-codigo.md` y en `design.md`.
 
+### B11 — Confirmación con desafío de voz en el motor (17 oct)
+
+````text
+Instrucción de Daniel (ML 2), B11: implementa la **confirmación con desafío de voz** en el motor. Repo `C:\Users\danie\Desktop\Hackatons\Interledger\EZPAY`, rama `H2` (no cambies de rama, no hagas pull, merge ni commits). Toca SOLO `api/decision/`, `api/tests/decision/` y `api/README-ml2.md`. Pruebas primero y luego el código.
+
+## Fuente de verdad
+Lee antes de escribir: `openspec/changes/add-decision-engine/specs/decision-engine/spec.md` (requisitos "Confirmación con desafío de voz", "Tabla de la fase PIN", "El motor no obedece al LLM") y `openspec/changes/add-decision-engine/design.md` (contexto de entrada, tabla regla→reason con las filas `CONFIRMATION (CHALLENGE)` y la fila PIN con desafío, y la tabla reason→situación). Si el spec y esta instrucción no coinciden, para y pregúntame.
+
+## Qué implementar
+1. **Modelos (`models.py`)**:
+   - `Reason` suma `CHALLENGE_RETRY`, `CHALLENGE_FAILED`, `CHALLENGE_VOICE_NOT_VERIFIED` y `CONFIRMED_WITH_PIN` (total 32).
+   - `ConfirmationMode` (`REPLY`, `CHALLENGE`).
+   - `Confirmation(mode, phrase_score: float|None, voice: Voice|None, challenge_attempts: int)`. Valida: `phrase_score` en [0, 1] o None, sin bool ni NaN ni inf. `challenge_attempts` es un int ≥ 0, sin bool.
+   - `Context.confirmation: Confirmation|None` (por defecto None).
+   - `EngineConfig` suma `confirmation_challenge: bool = False` y `challenge_phrase_match_min: float = 0.80` (en [0,1]).
+2. **`context_io.py`**: parsea `confirmation` (claves camelCase: `mode`, `phraseScore`, `voice`, `challengeAttempts`), `config.confirmationChallenge` y `config.challengePhraseMatchMin`. El parser sigue estricto y falla cerrado con `InvalidContextError`, como hoy: tipos malos, claves faltantes, modo desconocido y voice mal formada. Los mensajes de error NO deben incluir el valor recibido. `confirmation` ausente o null ⇒ None.
+3. **`engine.py`**:
+   - En fase `CONFIRMATION` con `confirmation` no nulo y `mode == CHALLENGE`, aplica en orden (gana la primera que aplique):
+     1. `reply == NO` ⇒ `REJECT`/`USER_DECLINED`.
+     2. `phrase_score >= min` y `voice.status == VERIFIED` ⇒ si la quote excede el presupuesto, `REQUIRE_AUTH`/`CONFIRMED_NEEDS_WALLET_AUTH`; si no, `PAY`/`CONFIRMED`. Usa el mismo cálculo de exceso que hoy.
+     3. `phrase_score >= min` y voz no verificada (`BELOW_THRESHOLD`, `NOT_AVAILABLE` o voice None) ⇒ `ASK_PIN`/`CHALLENGE_VOICE_NOT_VERIFIED`.
+     4. Frase que no coincide (`phrase_score` None o `< min`) con `challenge_attempts == 0` ⇒ `ASK_CONFIRM`/`CHALLENGE_RETRY`.
+     5. Resto ⇒ `REJECT`/`CHALLENGE_FAILED`.
+   - El borde es inclusivo: 0.80 cuenta como coincidencia.
+   - Con `mode == REPLY` o `confirmation` None, la fase CONFIRMATION queda EXACTAMENTE como hoy.
+   - En fase `PIN`: si `pin.result == OK`, `confirmation.mode == CHALLENGE` y `phrase_score >= min` ⇒ con exceso, `REQUIRE_AUTH`/`CONFIRMED_NEEDS_WALLET_AUTH`; si no, `PAY`/`CONFIRMED_WITH_PIN`. El resto de la fase PIN no cambia: el bloqueo sigue ganando primero, y PIN incorrecto, agotado o con formato inválido siguen igual.
+   - Invariante de seguridad (SEG-3): `PAY` solo puede salir de (a) CONFIRMATION en modo REPLY con "sí", (b) CONFIRMATION en modo CHALLENGE con frase que coincide y voz VERIFIED, o (c) PIN OK tras un desafío con frase que coincide. Ningún otro camino, tampoco en fase COMMAND.
+   - `config.confirmation_challenge` NO lo evalúa el motor: decidir el modo es trabajo del orquestador. El motor solo lee `confirmation.mode`. Documéntalo en el README.
+4. **`say_map.py`**:
+   - `ALL_CHECKS_PASSED` y `PENDING_PAYMENT_UNCONFIRMED` con `mode == CHALLENGE` ⇒ `CONFIRM_CHALLENGE` (sin exceso) o `CONFIRM_CHALLENGE_OVERRUN` (con exceso). Con REPLY o None quedan como hoy.
+   - `PIN_CORRECT` con CHALLENGE no se emite: no hay mapeo nuevo, así que deja el actual.
+   - `CHALLENGE_RETRY` ⇒ `CHALLENGE_RETRY`; `CHALLENGE_FAILED` ⇒ `CHALLENGE_FAILED`; `CHALLENGE_VOICE_NOT_VERIFIED` ⇒ `PIN_KEYBOARD`; `CONFIRMED_WITH_PIN` ⇒ ninguna situación, igual que `CONFIRMED`.
+   - IMPORTANTE: las 4 situaciones nuevas (`CONFIRM_CHALLENGE`, `CONFIRM_CHALLENGE_OVERRUN`, `CHALLENGE_RETRY`, `CHALLENGE_FAILED`) todavía NO existen en `api/voice/phrases.py`, porque son de Sebastián. NO toques `api/voice/`. Devuelve el NOMBRE de la situación como string, igual que hoy con las situaciones que faltaban. Si hoy hay una prueba que exige que cada situación exista en `Situation`, marca solo esas 4 como pendientes de Voz con un set explícito `PENDING_VOZ_SITUATIONS` y una prueba que falle si alguna de esas 4 ya existe en `Situation` sin quitarse del set.
+
+## Pruebas (antes del código)
+Suponemos los resultados de la parte de Sebastián: `phraseScore` es un número dado. Sebastián prueba `phrase_match` por su lado; tú NO implementes coincidencia de texto. Casos mínimos, en un archivo nuevo `tests/decision/test_engine_challenge.py`, reusando `decision_fixtures.py`:
+- Los 9 escenarios del requisito "Confirmación con desafío de voz": desafío correcto ⇒ PAY; con exceso ⇒ REQUIRE_AUTH; borde 0.80 coincide; 0.7999 no coincide; frase correcta + voz BELOW_THRESHOLD / NOT_AVAILABLE / None ⇒ ASK_PIN; frase mala con 0 intentos ⇒ CHALLENGE_RETRY; con 1 y con 5 ⇒ CHALLENGE_FAILED; phraseScore None ⇒ tratado como no coincidente; "no" gana aunque la frase coincida; grabación (frase mala) ⇒ retry y luego reject; modo REPLY ⇒ igual que hoy; confirmation None ⇒ igual que hoy.
+- Fase PIN tras el desafío: OK ⇒ PAY/CONFIRMED_WITH_PIN; OK con exceso ⇒ REQUIRE_AUTH; OK con frase que NO coincide ⇒ comportamiento actual (ASK_CONFIRM/PIN_CORRECT); bloqueado gana; WRONG, EXHAUSTED e INVALID_FORMAT sin cambios.
+- Propiedad SEG-3: barre combinaciones (fase × modo × reply × phraseScore {None, 0, 0.79, 0.8, 1} × voice status × pin result × attempts) y comprueba que `PAY` solo sale de los tres caminos permitidos.
+- Determinismo: el mismo context da la misma decisión.
+- `context_io`: un JSON válido con `confirmation`; y que falle cerrado con phraseScore 1.5, -0.1, "0.9", true y NaN; con challengeAttempts -1, 1.0 y true; con un mode desconocido; y con la clave mode faltante. El error no debe contener el valor.
+- `say_map`: los mapeos nuevos de arriba.
+- Todas las pruebas existentes deben seguir pasando sin modificarlas, salvo la ampliación justificada del conteo de reasons (28 ⇒ 32). Si tienes que cambiar otra prueba existente, dime cuál y por qué.
+
+## Al terminar
+Corre desde `api/`: `PYTHONPATH=. python -m unittest discover -s tests/decision` y la suite completa (`PYTHONPATH=. python -m pytest tests -q`). Actualiza `README-ml2.md`: cómo arma el orquestador `confirmation`, que el modo lo decide el orquestador, y la nota de las 4 situaciones pendientes de Voz. Repórtame:
+- los archivos tocados;
+- los números de las pruebas;
+- cualquier duda o desviación.
+
+Daniel ejecutará las pruebas él mismo antes de integrar, así que deja los comandos exactos en tu reporte.
+````
+
 ---
 
 Registro: 2026-10-16 · textos tomados de los mensajes enviados desde la sesión "Hachathon Interledger EZPAY" a los agentes `a0e9fa5f` (Constructor de Specs) y `c23437fd` (Builder). Los mensajes de estado sin instrucciones nuevas no se incluyen.

@@ -6,8 +6,9 @@ El orquestador llama `voice.phrases.say(Situation(nombre), **params)`.
 import unittest
 
 from decision import InvalidContextError
-from decision.models import Decision, DecisionType, Reason
-from decision.say_map import VOICE_SITUATIONS_EXISTING, VOICE_SITUATIONS_NEW, say_situation
+from decision.models import Confirmation, Decision, DecisionType, Reason
+from decision.say_map import (PENDING_VOZ_SITUATIONS, VOICE_SITUATIONS_EXISTING,
+                              VOICE_SITUATIONS_NEW, say_situation)
 import decision_fixtures as f
 
 
@@ -63,6 +64,11 @@ PAIRS = [
     (Reason.PIN_ATTEMPTS_EXHAUSTED, "PIN_ATTEMPTS_EXHAUSTED", f.pin_context(pin=f.PinContext(result="WRONG", sessionFailures=3, locked=False))),
     (Reason.PIN_LOCKED, "PIN_LOCKED", f.pin_context(pin=f.PinContext(result=None, sessionFailures=0, locked=True))),
     (Reason.PIN_INVALID_FORMAT, "PIN_INVALID_FORMAT", f.pin_context(pin=f.PinContext(result="INVALID_FORMAT", sessionFailures=0, locked=False))),
+    # B11: desafío de voz (el motor emite estos reasons con confirmation.mode == CHALLENGE)
+    (Reason.CHALLENGE_RETRY, "CHALLENGE_RETRY", f.confirmation_context(confirmation=Confirmation(mode="CHALLENGE", phrase_score=0.1, voice=None, challenge_attempts=0))),
+    (Reason.CHALLENGE_FAILED, "CHALLENGE_FAILED", f.confirmation_context(confirmation=Confirmation(mode="CHALLENGE", phrase_score=0.1, voice=None, challenge_attempts=1))),
+    (Reason.CHALLENGE_VOICE_NOT_VERIFIED, "PIN_KEYBOARD", f.confirmation_context(confirmation=Confirmation(mode="CHALLENGE", phrase_score=0.95, voice=None, challenge_attempts=0))),
+    (Reason.CONFIRMED_WITH_PIN, None, f.pin_context(confirmation=Confirmation(mode="CHALLENGE", phrase_score=0.95, voice=None, challenge_attempts=1))),
 ]
 
 
@@ -74,7 +80,7 @@ class CadaReasonTieneTraduccion(unittest.TestCase):
 
 
 class TodoReasonDelEnumEstaCubierto(unittest.TestCase):
-    def test_28_reasons_en_la_tabla(self):
+    def test_32_reasons_en_la_tabla(self):
         covered = {reason for reason, _, _ in PAIRS}
         self.assertEqual(covered, set(Reason))
 
@@ -85,7 +91,8 @@ class SituacionesDevueltas(unittest.TestCase):
         for reason, _, context in PAIRS:
             result = say_situation(Decision(DecisionType.REASK, reason), context)
             if result is None:
-                self.assertEqual(reason, Reason.CONFIRMED)
+                # B11: CONFIRMED_WITH_PIN tampoco tiene situación (el say sale del pago)
+                self.assertIn(reason, (Reason.CONFIRMED, Reason.CONFIRMED_WITH_PIN))
             else:
                 self.assertIn(result, allowed, reason)
 
@@ -106,9 +113,9 @@ class SituacionesDevueltas(unittest.TestCase):
 
 
 class Catalogos(unittest.TestCase):
-    def test_existing_tiene_21_y_new_tiene_13(self):
+    def test_existing_tiene_21_y_new_tiene_17(self):
         self.assertEqual(len(set(VOICE_SITUATIONS_EXISTING)), 21)
-        self.assertEqual(len(set(VOICE_SITUATIONS_NEW)), 13)
+        self.assertEqual(len(set(VOICE_SITUATIONS_NEW)), 17)  # 13 + las 4 del desafío (B11)
         self.assertEqual(set(VOICE_SITUATIONS_EXISTING) & set(VOICE_SITUATIONS_NEW), set())
 
     def test_new_lleva_los_once_con_el_mismo_nombre_del_reason(self):
@@ -119,6 +126,11 @@ class Catalogos(unittest.TestCase):
         }
         self.assertEqual(same_name, set(Reason.__members__) & same_name)
         self.assertTrue(same_name.issubset(set(VOICE_SITUATIONS_NEW)))
+
+    def test_las_cuatro_del_desafio_estan_marcadas_como_pendientes_de_voz(self):
+        self.assertEqual(PENDING_VOZ_SITUATIONS,
+                         {"CONFIRM_CHALLENGE", "CONFIRM_CHALLENGE_OVERRUN", "CHALLENGE_RETRY", "CHALLENGE_FAILED"})
+        self.assertTrue(PENDING_VOZ_SITUATIONS.issubset(set(VOICE_SITUATIONS_NEW)))
 
 
 class ContextosInvalidos(unittest.TestCase):
@@ -149,3 +161,13 @@ class IntegracionConElCatalogoDeVoz(unittest.TestCase):
         missing_new = [name for name in VOICE_SITUATIONS_NEW if name not in names]
         if missing_new:
             print(f"Situaciones NEW aún no en voice.phrases.Situation: {missing_new}")
+
+    def test_si_voz_agrega_una_situacion_pendiente_hay_que_quitarla_del_set(self):
+        try:
+            from voice import phrases
+        except ImportError:
+            self.skipTest("voice/phrases.py no está en esta rama todavía")
+        nombres = {situation.value for situation in phrases.Situation}
+        self.assertEqual(
+            PENDING_VOZ_SITUATIONS & nombres, set(),
+            "Voz ya tiene esas situaciones: quítalas de PENDING_VOZ_SITUATIONS en say_map.py")

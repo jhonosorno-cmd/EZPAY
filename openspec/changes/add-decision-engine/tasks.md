@@ -28,6 +28,6 @@
 ## 5. Confirmación con desafío de voz (decidida el 17 oct)
 
 - [x] 5.1 Spec del desafío en `decision-engine` y `speaker-verification` (entrada `confirmation`, reglas con los dos puntajes, 4 reasons nuevos)
-- [ ] 5.2 Pruebas de los escenarios del desafío, escritas antes del código
-- [ ] 5.3 Implementar la fase `CONFIRMATION` en modo `CHALLENGE`, el PIN tras el desafío y las situaciones en `say_map.py`
+- [x] 5.2 Pruebas de los escenarios del desafío, escritas antes del código
+- [x] 5.3 Implementar la fase `CONFIRMATION` en modo `CHALLENGE`, el PIN tras el desafío y las situaciones en `say_map.py`
 - [ ] 5.4 Voz: 4 situaciones nuevas, banco de frases y `phrase_match`; orquestador: armar `confirmation` y verificar la respuesta

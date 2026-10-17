@@ -101,7 +101,15 @@ voice.phrases.say(voice.phrases.Situation(nombre), **params_del_turno)
 # 4. turno de verificación de hablante: context.voice entra al context
 verifier.verify(pcm, user="usuario")  # {"status": "VERIFIED"|"BELOW_THRESHOLD"|"NOT_AVAILABLE", "score"}
 
-# 5. enrolamiento (POST /voice/enrollment): 3 muestras, consentimiento explícito
+# 5. confirmación (B11): el orquestador arma el modo (REPLY o CHALLENGE) y Voz
+#    el phraseScore; el motor solo lee confirmation.mode
+from decision import Confirmation, ConfirmationMode
+confirmation = Confirmation(mode="CHALLENGE", phrase_score=0.93,
+                            voice=Voice(status="VERIFIED", score=0.78), challenge_attempts=0)
+#    ... y lo manda dentro del dict del context (claves camelCase:
+#    {"mode": "CHALLENGE", "phraseScore": 0.93, "voice": {...}, "challengeAttempts": 0})
+
+# 6. enrolamiento (POST /voice/enrollment): 3 muestras, consentimiento explícito
 SpeakerEnrollment(verifier).enroll(samples, consent=True)  # {"enrolled": True} o 400 con code
 ```
 
@@ -126,17 +134,63 @@ SpeakerEnrollment(verifier).enroll(samples, consent=True)  # {"enrolled": True} 
 - **`say_situation`**: función pura que traduce `(Decision, Context)` al
   NOMBRE de la situación del catálogo de Voz; los textos viven solo en
   `voice/phrases.py`. `VOICE_SITUATIONS_EXISTING` son las 21 situaciones que
-  `Situation` ya tiene hoy; `VOICE_SITUATIONS_NEW` son las 13 que Voz agregará
-  (once comparten nombre con su `reason`). Devuelve `None` solo para
-  `CONFIRMED` (el `say` sale del resultado del pago). Una variante que necesita
-  la `quote` (`CONFIRM`/`AUTH_OVERRUN`, `PENDING_PAYMENT_UNCONFIRMED*`), el
-  `amountError` o las opciones de resolución y no los tiene levanta
-  `InvalidContextError`: contexto imposible, no se paga.
+  `Situation` ya tiene hoy; `VOICE_SITUATIONS_NEW` son las 17 que Voz agregará
+  (13 del 16 oct + las 4 del desafío de voz, B11; las 4 de `PENDING_VOZ_SITUATIONS`
+  todavía NO existen en `Situation` y hay una prueba que vigila quitárselas del
+  set cuando Voz las agregue). Devuelve `None` solo para `CONFIRMED` y
+  `CONFIRMED_WITH_PIN` (el `say` sale del resultado del pago). Una variante que
+  necesita la `quote` (`CONFIRM`/`AUTH_OVERRUN`, `PENDING_PAYMENT_UNCONFIRMED*`,
+  `CONFIRM_CHALLENGE*`), el `amountError` o las opciones de resolución y no los
+  tiene levanta `InvalidContextError`: contexto imposible, no se paga.
 - **Alta del PIN** (una vez, por configuración): `python scripts/make_pin_hash.py`
   lee el PIN con getpass y imprime `EZPAY_PIN_HASH=scrypt$N$r$p$sal_b64$hash_b64`
   para copiar a `.env` (ver `.env.example`). El PIN en claro no queda en ningún
-  archivo del repo. En H1 el contador global vive en la memoria del proceso del
-  backend: reiniciarlo lo resetea (persistencia diferida a H2).
+  archivo del repo. El contador global de fallos y el bloqueo persisten (ver
+  `verify_pin` arriba).
+
+## Confirmación con desafío de voz (B11)
+
+- **El MODO lo decide el orquestador, no el motor**: `config.confirmationChallenge`
+  es una bandera del ORQUESTADOR (por defecto false). El motor NUNCA la evalúa:
+  solo lee `confirmation.mode` del `context`. Con `config.confirmationChallenge`
+  activa y el comando verificado por voz sin PIN, el orquestador arma
+  `confirmation.mode == "CHALLENGE"`; si el pago pasó por PIN (comando por
+  texto, voz no verificada, destinatario nuevo o monto alto), arma
+  `confirmation.mode == "REPLY"` (el PIN ya es el segundo factor: se confirma
+  con "sí" como hoy, sin ciclos de PIN).
+- **Cómo arma el orquestador la `confirmation`** (claves camelCase):
+  `{"mode": "CHALLENGE", "phraseScore": 0.93, "voice": {"status": "VERIFIED", "score": 0.78},
+  "challengeAttempts": 0}`. `phraseScore` lo calcula Voz con `phrase_match` sobre
+  la transcripción normalizada (`null` = no hubo respuesta por voz); `voice` es la
+  verificación de la RESPUESTA (la arma el orquestador con `speaker.verify`; el
+  motor nunca llama a `verify`, D4); `challengeAttempts` lo lleva el orquestador
+  y lo suma cuando repite el desafío con OTRA frase del banco (nunca la misma en
+  confirmaciones seguidas). La frase del banco la elige el orquestador al azar,
+  nunca el LLM. `confirmation` ausente o null ⇒ se decide como hoy (tabla REPLY).
+- **El `say` de la pregunta de confirmación también depende del modo**: `ALL_CHECKS_PASSED`
+  sale en fase COMMAND, antes de que exista una respuesta. Para que `say_situation` elija
+  `CONFIRM_CHALLENGE`/`CONFIRM_CHALLENGE_OVERRUN`, el orquestador decide el modo con esa
+  decisión y pasa a `say_situation` el mismo `context` con
+  `confirmation = {"mode": "CHALLENGE", "phraseScore": null, "voice": null, "challengeAttempts": 0}`;
+  sin `confirmation` sale `CONFIRM`/`AUTH_OVERRUN` ("sí" como hoy).
+- **Reglas en CONFIRMATION con `mode == "CHALLENGE"`** (en orden, gana la primera):
+  1) `reply == "NO"` ⇒ `REJECT`/`USER_DECLINED`; 2) `phraseScore >= challengePhraseMatchMin`
+  (borde inclusivo; 0.80 por defecto) y voz `VERIFIED` ⇒ con exceso
+  `REQUIRE_AUTH`/`CONFIRMED_NEEDS_WALLET_AUTH`, si no `PAY`/`CONFIRMED`;
+  3) frase que coincide y voz no verificada (`BELOW_THRESHOLD`, `NOT_AVAILABLE`
+  o sin voz) ⇒ `ASK_PIN`/`CHALLENGE_VOICE_NOT_VERIFIED`; 4) frase que no coincide
+  con `challengeAttempts == 0` ⇒ `ASK_CONFIRM`/`CHALLENGE_RETRY`; 5) resto ⇒
+  `REJECT`/`CHALLENGE_FAILED`.
+- **Fase PIN tras el desafío**: con `pin.result == "OK"`, modo CHALLENGE y frase
+  que coincide ⇒ `PAY`/`CONFIRMED_WITH_PIN` (o `REQUIRE_AUTH` con exceso): el PIN
+  reemplaza a la voz y el consentimiento ya lo dio la frase. El bloqueo sigue
+  ganando primero, y WRONG / agotado / INVALID_FORMAT / frase que no coincide
+  (⇒ `ASK_CONFIRM`/`PIN_CORRECT`) quedan como hoy.
+- **SEG-3 (el motor no obedece al LLM)**: `PAY` solo sale de (a) CONFIRMATION en
+  modo REPLY con "sí", (b) CONFIRMATION en modo CHALLENGE con frase que coincide
+  y voz `VERIFIED`, o (c) PIN OK tras un desafío con frase que coincide. Hay una
+  prueba de propiedad que barre miles de combinaciones y falla si aparece otro
+  camino.
 
 ## Verificación de hablante y enrolamiento (`speaker/`)
 

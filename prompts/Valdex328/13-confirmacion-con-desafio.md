@@ -68,6 +68,16 @@ de manera presencial se dijo que sí a la propuesta. Pusheamos al repo para que 
 Que el Constructor agregue el desafío a decision-engine y speaker-verification (entradas nuevas de la confirmación, reglas con los dos puntajes, reasons nuevos) y luego súbelo a H2.
 ````
 
+## Prompt 10 (comentario en el issue #12 e implementación del desafío en el motor)
+
+````text
+redacta un comentario y publicalo mencionando a todos sobre las specs actualizadas, ya que vi que se tocaron las de H1.
+
+Después de esto, que el builder empiece a implementar el desafío. Toma casos suponiendo resultados de la parte de Sebastian, quien debe hacer sus propias pruebas.
+
+Cuando esté hecho, me dices, ejecuto, leemos los resultados y lo implementamos todo.
+````
+
 ---
 
-Registro: 2026-10-17 · transcripción literal de la sesión "Hachathon Interledger EZPAY". La instrucción que la IA redactó para el Constructor de Specs está en `10-instrucciones-a-agentes.md` (A13).
+Registro: 2026-10-17 · transcripción literal de la sesión "Hachathon Interledger EZPAY". La instrucción que la IA redactó para el Constructor de Specs está en `10-instrucciones-a-agentes.md` (A13) y para el Builder en el mismo archivo (B11).
