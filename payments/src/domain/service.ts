@@ -124,13 +124,15 @@ export class PaymentsService {
   // ------------------------------------------------------------------ grants
   async createGrant(body: any) {
     const b = body ?? {}
-    if (typeof b.userId !== 'string' || !b.userId) throw err(400, 'INVALID_REQUEST', 'userId is required')
-    if (typeof b.walletAddress !== 'string' || !b.walletAddress) throw err(400, 'INVALID_WALLET', 'walletAddress is required')
-    if (typeof b.finishUri !== 'string' || !b.finishUri) throw err(400, 'INVALID_REQUEST', 'finishUri is required')
-    const debitAmount = parseAmount(b.limit?.debitAmount, 'limit.debitAmount')
+    if (typeof b.userId !== 'string' || !b.userId) throw err(500, 'INTERNAL_ERROR', 'userId is required')
+    if (typeof b.walletAddress !== 'string' || !b.walletAddress) throw err(500, 'INTERNAL_ERROR', 'walletAddress is required')
+    if (typeof b.finishUri !== 'string' || !b.finishUri) throw err(500, 'INTERNAL_ERROR', 'finishUri is required')
+    if (typeof b.limit !== 'object' || b.limit === null || typeof b.limit.debitAmount !== 'object' || b.limit.debitAmount === null)
+      throw err(500, 'INTERNAL_ERROR', 'limit.debitAmount object is required')
+    const debitAmount = parseAmount(b.limit.debitAmount, 'limit.debitAmount')
     const interval = b.limit?.interval
     if (interval !== undefined && (typeof interval !== 'string' || !parseInterval(interval)))
-      throw err(400, 'INVALID_REQUEST', 'limit.interval is not a supported ISO 8601 repeating interval')
+      throw err(400, 'INVALID_AMOUNT', 'limit.interval is not a supported ISO 8601 repeating interval')
 
     const wallet = await this.wallet(b.walletAddress, () => err(400, 'INVALID_WALLET', 'wallet address could not be resolved'))
     const clientNonce = randomUUID()

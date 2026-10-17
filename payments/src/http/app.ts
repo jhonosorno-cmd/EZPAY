@@ -60,11 +60,11 @@ export function createApp({ svc, ping, log = (l) => console.log(JSON.stringify(l
   v1.get('/payments/:id', h(async (req, res) => { res.json(await svc.getPayment(String(req.params.id))) }))
   app.use('/v1', v1)
 
-  app.use((_req, res) => { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'route not found' } }) })
+  app.use((_req, res) => { res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'route not found' } }) })
   app.use((e: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (e instanceof AppError) return void res.status(e.status).json({ error: { code: e.code, message: e.message } })
     if ((e as any)?.type === 'entity.parse.failed')
-      return void res.status(400).json({ error: { code: 'INVALID_REQUEST', message: 'malformed JSON body' } })
+      return void res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'the request body is not valid JSON' } })
     log({ level: 'error', error: e instanceof Error ? e.name : 'unknown' })
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'unexpected error' } })
   })

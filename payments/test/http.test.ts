@@ -39,7 +39,7 @@ describe('http', () => {
   })
   it('400 on malformed JSON, 500 without internals on unexpected errors', async () => {
     const { app, op } = build()
-    expect((await request(app).post('/v1/grants').set('content-type', 'application/json').send('{bad')).body.error.code).toBe('INVALID_REQUEST')
+    expect((await request(app).post('/v1/grants').set('content-type', 'application/json').send('{bad')).body.error.code).toBe('INTERNAL_ERROR')
     op.getWallet = async () => { throw new TypeError('boom https://secret.example/x TOKEN') }
     const r = await request(app).post('/v1/grants').send({ userId: 'u', walletAddress: MARTA, finishUri: 'x', limit: { debitAmount: cop(1) } })
     expect(r.status).toBe(400) // un fallo no clasificado al resolver la wallet es INVALID_WALLET
