@@ -72,7 +72,7 @@ export class SdkOpenPayments implements OpenPaymentsPort {
       this.c.grant.request({ url: a.wallet.authServer }, {
         access_token: {
           access: [{
-            type: 'outgoing-payment', actions: ['create', 'read'], identifier: a.wallet.id,
+            type: 'outgoing-payment', actions: ['create', 'read', 'list'], identifier: a.wallet.id,
             limits: { debitAmount: a.limit.debitAmount, ...(a.limit.interval ? { interval: a.limit.interval } : {}) },
           }],
         },
