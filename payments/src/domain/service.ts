@@ -16,12 +16,13 @@ const err = (status: number, code: string, message = code) => new AppError(statu
 const errResult = (e: AppError): HttpResult => ({ status: e.status, body: { error: { code: e.code, message: e.message } } })
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-export type ServiceOptions = { now?: Clock; inProgressWaitMs?: number; inProgressPollMs?: number }
+export type ServiceOptions = { now?: Clock; inProgressWaitMs?: number; inProgressPollMs?: number; log?: (line: Record<string, unknown>) => void }
 
 export class PaymentsService {
   private readonly now: Clock
   private readonly waitMs: number
   private readonly pollMs: number
+  private readonly log?: (line: Record<string, unknown>) => void
   private readonly wallets = new Map<string, WalletInfo>()
 
   constructor(
@@ -32,6 +33,7 @@ export class PaymentsService {
     this.now = opts.now ?? Date.now
     this.waitMs = opts.inProgressWaitMs ?? 2000
     this.pollMs = opts.inProgressPollMs ?? 100
+    this.log = opts.log
   }
 
   // ------------------------------------------------------------------ helpers
@@ -84,6 +86,7 @@ export class PaymentsService {
       const remote = await this.op.getGrantSpent({ sender, accessToken: token })
       return remote ? max(local, remote) : local
     } catch {
+      this.log?.({ level: 'warn', event: 'spent_fallback' })
       return local
     }
   }
@@ -321,7 +324,13 @@ export class PaymentsService {
         if (e.kind === 'forbidden') {
           const spent = await this.spent(grant, sender, token)
           const fits = cmp(quote.debitAmount, sub(grant.limit.debitAmount, spent)) <= 0
-          return this.fail(key, fits ? err(401, 'GRANT_INVALID') : err(403, 'LIMIT_EXCEEDED'))
+          if (!fits) return this.fail(key, err(403, 'LIMIT_EXCEEDED'))
+          if (!rotated) {
+            rotated = true
+            try { token = await this.token(grant, true) } catch (re) { return this.fail(key, re as AppError) }
+            continue
+          }
+          return this.fail(key, err(401, 'GRANT_INVALID'))
         }
         // timeout / red / 5xx: resultado incierto
         this.store.setKeyState(key, 'UNKNOWN')
