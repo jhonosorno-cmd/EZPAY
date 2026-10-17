@@ -25,6 +25,8 @@ class Situation(str, Enum):
     CONFIRM_UNCLEAR = "CONFIRM_UNCLEAR"
     CONFIRM_CHALLENGE = "CONFIRM_CHALLENGE"
     CHALLENGE_RETRY = "CHALLENGE_RETRY"
+    CONFIRM_CHALLENGE_OVERRUN = "CONFIRM_CHALLENGE_OVERRUN"
+    CHALLENGE_FAILED = "CHALLENGE_FAILED"
     CANCELLED = "CANCELLED"
     COMPLETED = "COMPLETED"
     PIN_KEYBOARD = "PIN_KEYBOARD"
@@ -66,6 +68,9 @@ TEMPLATES = {
     S.CONFIRM: "¿Le envío {recibe} {moneda} a {nombre}?",
     S.CONFIRM_CHALLENGE: "¿Le envío {recibe} {moneda} a {nombre}? Para confirmar, repite: {frase}",
     S.CHALLENGE_RETRY: "No te entendí bien. Repite esta frase: {frase}",
+    S.CONFIRM_CHALLENGE_OVERRUN: ("¿Le envío {recibe} {moneda} a {nombre}? Supera tu presupuesto y lo autorizarás en tu "
+                                  "billetera. Para confirmar, repite: {frase}"),
+    S.CHALLENGE_FAILED: "No coincidió la frase. No envié nada.",
     S.CONFIRM_UNCLEAR: "No te entendí. ¿Le envío {recibe} {moneda} a {nombre}? Di sí o no.",
     S.CANCELLED: "Listo, cancelé el envío.",
     S.COMPLETED: "Listo, le envié {recibe} {moneda} a {nombre}.",
@@ -111,6 +116,7 @@ REQUIRED = {
     S.CONFIRM_UNCLEAR: {"amount", "name"},
     S.CONFIRM_CHALLENGE: {"amount", "name", "phrase"},
     S.CHALLENGE_RETRY: {"phrase"},
+    S.CONFIRM_CHALLENGE_OVERRUN: {"amount", "name", "phrase"},
     S.COMPLETED: {"amount", "name"},
 }
 OPTIONAL = {S.COMPLETED: {"debit"}}
@@ -178,7 +184,7 @@ def say(situation: Situation, **params) -> str:
         return TEMPLATES[situation].format(nombre=_name(params["name"]))
     if situation is S.CHALLENGE_RETRY:
         return TEMPLATES[situation].format(frase=_phrase(params["phrase"]))
-    if situation is S.CONFIRM_CHALLENGE:
+    if situation in (S.CONFIRM_CHALLENGE, S.CONFIRM_CHALLENGE_OVERRUN):
         recibe, moneda = _money(_amount(params["amount"]))
         return TEMPLATES[situation].format(recibe=recibe, moneda=moneda, nombre=_name(params["name"]),
                                            frase=_phrase(params["phrase"]))
