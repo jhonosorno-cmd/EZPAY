@@ -20,7 +20,7 @@ no tienen contra qué verificarse.
   verifica la voz del comando), D5 (diseño del PIN) y D9 (`previouslyPaid`).
 - Quedan fuera de H1 (cambio posterior de ML 2): `speaker-verification` (SpeechBrain, umbral 0.45
   provisional) y `voice-enrollment` (`/enrollment`, `GET /enrollment`, errores de B-5).
-- Sin código: es un cambio solo de specs.
+- Código en `api/`: el motor (`api/decision/`), el PIN (`api/pin/`), sus scripts (`api/scripts/`), `api/.env.example` y las pruebas de los escenarios (`api/tests/decision/`, `api/tests/pin/`), escritas antes del código.
 
 ## Capabilities
 
