@@ -14,7 +14,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .config import ASSET_CODE, ASSET_SCALE, CORS_ORIGIN, LOG_NAME, PLACEHOLDER_INTERACT_URL
+from .config import CORS_ORIGIN, LOG_NAME, asset_code, asset_scale
+from .orchestrator import Orchestrator, TurnError
+from payments_client import PaymentsError, UpstreamUnavailable
 from .sessions import Session, SessionNotFound, SessionStore
 from .states import TurnState
 from . import turns as turn_logic
@@ -58,16 +60,39 @@ def _valid_amount(raw) -> bool:
 
 
 def _zero_amount(like: dict) -> dict:
-    return {"value": "0", "assetCode": like.get("assetCode", ASSET_CODE), "assetScale": like.get("assetScale", ASSET_SCALE)}
+    return {"value": "0", "assetCode": like.get("assetCode", asset_code()), "assetScale": like.get("assetScale", asset_scale())}
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *,
+    transcriber=None,
+    verifier=None,
+    clock=None,
+    payments=None,
+    agenda_path=None,
+    pin_validator=None,
+) -> FastAPI:
+    """Crea la app. Los puertos y el cliente de Node son inyectables (las pruebas
+    usan dobles); sin adaptador el servidor arranca igual y degrada según el spec."""
     app = FastAPI(title="EZPAY api (esqueleto Contrato B)", docs_url=None, redoc_url=None)
     logger = _get_logger()
     store = SessionStore()
     budget: dict = {}
     enrolled = {"value": False}
+    orchestrator = Orchestrator(
+        transcriber=transcriber,
+        verifier=verifier,
+        clock=clock,
+        payments=payments,
+        agenda_path=agenda_path,
+        pin_validator=pin_validator,
+        store=store,
+    )
     app.state.session_store = store
+    app.state.orchestrator = orchestrator
+    app.state.payments = payments
+    app.state.agenda_path = agenda_path
+    app.state.pin_validator = pin_validator
 
     app.add_middleware(
         CORSMiddleware,
@@ -79,6 +104,7 @@ def create_app() -> FastAPI:
     @app.middleware("http")
     async def safe_logging(request: Request, call_next):
         request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+        request.state.request_id = request_id
         t0 = time.perf_counter()
         response = await call_next(request)
         duration_ms = round((time.perf_counter() - t0) * 1000)
@@ -102,7 +128,9 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-        return _error(exc.status_code, "INVALID_REQUEST", "La petición no es válida")
+        # Contrato v1.2 (AB-1): toda petición mal formada o ruta desconocida es 400 INVALID_REQUEST.
+        # SESSION_NOT_FOUND no pasa por aquí: es un handler propio del store (404).
+        return _error(400, "INVALID_REQUEST", "La petición no es válida")
 
     from fastapi.exceptions import RequestValidationError
 
@@ -127,22 +155,49 @@ def create_app() -> FastAPI:
     # ---------------------------------------------------------------- budget
     @app.post("/api/budget", status_code=201)
     async def post_budget(request: Request, body: dict = Body(...)):
+        request_id = getattr(request.state, "request_id", None)
         amount = body.get("debitAmount")
         if not _valid_amount(amount):
             return _error(400, "INVALID_AMOUNT", "El monto no es válido")
         interval = body.get("interval")
         if interval is not None and not isinstance(interval, str):
             return _error(400, "INVALID_AMOUNT", "El monto no es válido")
-        budget["limit"] = amount
-        budget["interval"] = interval
+        try:
+            grant = orchestrator.create_budget_grant(amount["value"], interval, request_id)
+        except UpstreamUnavailable:
+            return _error(502, "UPSTREAM_ERROR", "No se pudo contactar al servicio de pagos")
+        except PaymentsError as exc:
+            orchestrator.log_node_defect(exc, request_id)
+            if exc.code == "INVALID_AMOUNT":
+                return _error(400, "INVALID_AMOUNT", "El monto no es válido")
+            return _error(500, "INTERNAL_ERROR", "Error interno")
         session = store.create()
         session.state = TurnState.AWAITING_AUTHORIZATION  # esperando la aprobación en la wallet
-        session.pending_authorization = True
-        return {"interactUrl": PLACEHOLDER_INTERACT_URL}
+        session.pending_authorization = "budget"
+        session.grant_id = grant["grantId"]
+        return {"interactUrl": grant["interactUrl"]}
 
     @app.get("/api/budget")
-    async def get_budget():
-        limit = budget.get("limit") or {"value": "0", "assetCode": ASSET_CODE, "assetScale": ASSET_SCALE}
+    async def get_budget(request: Request):
+        request_id = getattr(request.state, "request_id", None)
+        if orchestrator.budget_grant_id:
+            try:
+                grant = orchestrator.payments.get_grant(orchestrator.budget_grant_id, request_id=request_id)
+            except UpstreamUnavailable:
+                return _error(502, "UPSTREAM_ERROR", "No se pudo contactar al servicio de pagos")
+            except PaymentsError as exc:
+                orchestrator.log_node_defect(exc, request_id)
+                return _error(500, "INTERNAL_ERROR", "Error interno")
+            limit = {"debitAmount": grant["limit"]["debitAmount"]}
+            if "interval" in grant["limit"]:
+                limit["interval"] = grant["limit"]["interval"]
+            return {
+                "status": grant["status"],
+                "limit": limit,
+                "spent": grant["spent"],
+                "remaining": grant["remaining"],
+            }
+        limit = budget.get("limit") or {"value": "0", "assetCode": asset_code(), "assetScale": asset_scale()}
         entry = {"debitAmount": limit}
         if budget.get("interval"):
             entry["interval"] = budget["interval"]
@@ -156,17 +211,16 @@ def create_app() -> FastAPI:
     # ---------------------------------------------------------------- grant-callback
     @app.post("/api/grant-callback")
     async def post_grant_callback(request: Request, body: dict = Body(...)):
-        session = store.take_pending_authorization()
-        has_params = isinstance(body.get("interactRef"), str) and isinstance(body.get("hash"), str)
-        if session and has_params:
-            session.state = TurnState.AWAITING_COMMAND
-            request.state.turn_state = TurnState.AWAITING_COMMAND.value
-            return turn_logic.response(session.id, TurnState.AWAITING_COMMAND, turn_logic.SAY_AUTHORIZED)
-        if session:
-            session.state = TurnState.REJECTED
-        request.state.turn_state = TurnState.REJECTED.value
-        session_id = session.id if session else "unknown"
-        return turn_logic.response(session_id, TurnState.REJECTED, turn_logic.SAY_REJECTED)
+        request_id = getattr(request.state, "request_id", None)
+        try:
+            result = orchestrator.handle_callback(body, request_id)
+        except UpstreamUnavailable:
+            # el Contrato B del callback no define 502: fail-closed con INTERNAL_ERROR
+            return _error(500, "INTERNAL_ERROR", "Error interno")
+        except Exception:  # nada del request en la respuesta ni en los logs
+            return _error(500, "INTERNAL_ERROR", "Error interno")
+        request.state.turn_state = result["state"]
+        return result
 
     # ---------------------------------------------------------------- turns
     @app.post("/api/turns")
@@ -181,20 +235,35 @@ def create_app() -> FastAPI:
             if audio is not None or text or not sessionId:
                 return _error(400, "AUDIO_OR_TEXT_REQUIRED", "Envía audio o texto, no ambos ni ninguno")
             session = store.get(sessionId)
-            session.state = TurnState.PAYMENT_PENDING
-            request.state.turn_state = TurnState.PAYMENT_PENDING.value
-            return turn_logic.response(session.id, TurnState.PAYMENT_PENDING, turn_logic.SAY_PENDING)
+            try:
+                result = orchestrator.verify_pending(session, request_id=getattr(request.state, "request_id", None))
+            except UpstreamUnavailable:
+                return _error(500, "INTERNAL_ERROR", "Error interno")
+            except PaymentsError as exc:
+                orchestrator.log_node_defect(exc, getattr(request.state, "request_id", None))
+                return _error(500, "INTERNAL_ERROR", "Error interno")
+            except Exception:  # nada del request en la respuesta ni en los logs
+                return _error(500, "INTERNAL_ERROR", "Error interno")
+            request.state.turn_state = result["state"]
+            return result
 
         if (audio is None) == (not text):
             return _error(400, "AUDIO_OR_TEXT_REQUIRED", "Envía audio o texto, no ambos ni ninguno")
 
         session: Session = store.get(sessionId) if sessionId else store.create()
 
-        has_audio = audio is not None
-        if session.state is TurnState.AWAITING_PIN:
-            result = turn_logic.handle_pin_attempt(session) if not has_audio else turn_logic.handle_command(session, has_audio=True, text="")
-        else:
-            result = turn_logic.handle_command(session, has_audio, text)
+        audio_bytes = audio.file.read() if audio is not None else None
+        try:
+            result = orchestrator.handle_turn(
+                session,
+                audio_bytes=audio_bytes,
+                text=text or None,
+                request_id=getattr(request.state, "request_id", None),
+            )
+        except TurnError as exc:
+            return _error(exc.status, exc.code, exc.message)
+        except Exception:  # nada del request en la respuesta ni en los logs
+            return _error(500, "INTERNAL_ERROR", "Error interno")
         request.state.turn_state = result["state"]
         return result
 

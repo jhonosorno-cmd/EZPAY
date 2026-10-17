@@ -4,13 +4,16 @@ import unittest
 
 from fastapi.testclient import TestClient
 
+import fakes
+import node_double
 from app.main import create_app
 import contract
 
 
 class RoutesTest(unittest.TestCase):
     def setUp(self):
-        self.app = create_app()
+        # el estado global del PIN de prueba va a un tmp: nunca api/.data/pin/
+        self.app = create_app(pin_validator=fakes.test_pin_validator())
         self.client = TestClient(self.app)
 
     def audio_files(self, n=3):
@@ -29,13 +32,17 @@ class RoutesTest(unittest.TestCase):
 
     # --- budget -----------------------------------------------------------
     def test_post_budget_validates_against_contract(self):
-        r = self.client.post("/api/budget", json={
+        # esperaba el interactUrl de placeholder del esqueleto; pasó que la ruta ahora
+        # crea el grant con el cliente de Node (R5), así que la prueba usa el doble
+        app, node = fakes.make_app()
+        client = TestClient(app)
+        r = client.post("/api/budget", json={
             "debitAmount": {"value": "20000000", "assetCode": "COP", "assetScale": 2},
             "interval": "R52/2026-10-17T00:00:00Z/P1W",
         })
         self.assertEqual(r.status_code, 201)
         contract.validate_response("POST", "/api/budget", 201, r.json())
-        self.assertTrue(r.json()["interactUrl"])
+        self.assertEqual(r.json()["interactUrl"], node_double.INTERACT_URL)
 
     def test_get_budget_validates_against_contract(self):
         r = self.client.get("/api/budget")
@@ -43,9 +50,13 @@ class RoutesTest(unittest.TestCase):
         contract.validate_response("GET", "/api/budget", 200, r.json())
 
     def test_get_budget_reflects_the_posted_limit(self):
+        # esperaba el presupuesto local del esqueleto; pasó que GET ahora lee el
+        # grant desde Node (R5), así que la prueba usa el doble
+        app, node = fakes.make_app()
+        client = TestClient(app)
         amount = {"value": "20000000", "assetCode": "COP", "assetScale": 2}
-        self.client.post("/api/budget", json={"debitAmount": amount})
-        r = self.client.get("/api/budget")
+        client.post("/api/budget", json={"debitAmount": amount})
+        r = client.get("/api/budget")
         self.assertEqual(r.json()["limit"]["debitAmount"], amount)
         self.assertTrue(contract.is_digits_only(r.json()["spent"]["value"]))
         self.assertTrue(contract.is_digits_only(r.json()["remaining"]["value"]))
@@ -64,10 +75,14 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual(r.json()["state"], "REJECTED")
 
     def test_grant_callback_with_params_continues_to_command(self):
-        self.client.post("/api/budget", json={
+        # esperaba la respuesta fija del esqueleto; pasó que el callback llama a
+        # /continue en Node (R5), así que la prueba usa el doble
+        app, node = fakes.make_app()
+        client = TestClient(app)
+        client.post("/api/budget", json={
             "debitAmount": {"value": "20000000", "assetCode": "COP", "assetScale": 2},
         })
-        r = self.client.post("/api/grant-callback", json={
+        r = client.post("/api/grant-callback", json={
             "interactRef": "ref-de-prueba", "hash": "hash-de-prueba",
         })
         self.assertEqual(r.status_code, 200)
@@ -76,7 +91,10 @@ class RoutesTest(unittest.TestCase):
 
     # --- turns ------------------------------------------------------------
     def test_text_turn_creates_session_and_validates(self):
-        r = self.client.post("/api/turns", data={"text": "envíale veinte mil a mi hija"})
+        # comando sin intención de pago: no hay Node en el camino (esperaba que el esqueleto
+        # respondiera REASK a un comando de pago; pasó que el orquestador pide el grant de
+        # presupuesto, así que la prueba de humo usa un comando no pago)
+        r = self.client.post("/api/turns", data={"text": "hola"})
         self.assertEqual(r.status_code, 200)
         contract.validate_response("POST", "/api/turns", 200, r.json())
         body = r.json()
