@@ -217,12 +217,9 @@ class Orchestrator:
     def _transcribe(self, audio, rid, verify):
         from voice.transcribe import TranscribeInputError
 
-        from .voice_io import RemoteSttFailed, TranscriptionUnavailable
+        from .voice_io import TranscriptionUnavailable
         try:
             result, voice = self.voice.transcribe_command(audio, rid, verify=verify)
-        except RemoteSttFailed:
-            logger.error("Groq transcription failed requestId=%s (no local fallback)", rid)
-            raise ApiFailure(500, "INTERNAL_ERROR", "Error interno") from None
         except TranscribeInputError as err:
             code = err.code.value
             message = "El audio supera los 30 segundos" if code == "AUDIO_TOO_LONG" else "El audio no se pudo leer"

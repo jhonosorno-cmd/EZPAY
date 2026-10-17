@@ -1,7 +1,9 @@
-"""Modo EZPAY_STT_PROVIDER=groq: la transcripción va siempre a Groq y nunca al whisper local."""
+"""Modo EZPAY_STT_PROVIDER=groq: Groq primero, sin depender del consentimiento; si falla, respaldo local."""
 import unittest
+from unittest import mock
 
-from app.voice_io import RemoteSttFailed, VoiceIO, _LocalDisabled
+from app.voice_io import VoiceIO
+from voice.config import REMOTE_TIMEOUT_S
 from voice.transcribe import Engine, Engines
 
 
@@ -53,7 +55,7 @@ class _Mp4Decoder:
 class SafariAudioTest(unittest.TestCase):
     def test_mp4_is_repacked_to_wav_before_validation(self):
         decoder, remote = _Mp4Decoder(), _Remote()
-        io = VoiceIO(engines=Engines(decoder, _Speech(), remote, _LocalDisabled()), stt_provider="groq")
+        io = VoiceIO(engines=Engines(decoder, _Speech(), remote, _Local()), stt_provider="groq")
         mp4 = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64
         transcript, _ = io.transcribe_command(mp4, "rid-mp4", verify=False)
         self.assertEqual(transcript.engine, Engine.GROQ)
@@ -68,9 +70,24 @@ class GroqOnlyTest(unittest.TestCase):
         self.assertEqual(transcript.engine, Engine.GROQ)
         self.assertEqual(remote.calls, 1)
 
-    def test_groq_failure_never_falls_back_to_local(self):
-        with self.assertRaises(RemoteSttFailed):
-            voice_io(_Remote(fail=True), _LocalDisabled()).transcribe_command(b"\x1a\x45\xdf\xa3", "rid-2", verify=False)
+    def test_groq_failure_falls_back_to_local(self):
+        remote, local = _Remote(fail=True), _Local()
+        transcript, _ = voice_io(remote, local).transcribe_command(b"\x1a\x45\xdf\xa3", "rid-2", verify=False)
+        self.assertEqual(transcript.engine, Engine.LOCAL)
+        self.assertEqual(transcript.text, "local")
+        self.assertEqual(local.calls, 1)
+
+    def test_load_keeps_the_real_local_engine_in_groq_mode(self):
+        local = _Local()
+        built = Engines(_Decoder(), _Speech(), _Remote(fail=True), local)
+        io = VoiceIO(stt_provider="groq", verifier=object())
+        with mock.patch("voice.engines.build_default_engines", return_value=built):
+            io.load()
+        transcript, _ = io.transcribe_command(b"\x1a\x45\xdf\xa3", "rid-load", verify=False)
+        self.assertEqual(transcript.engine, Engine.LOCAL)
+
+    def test_groq_gets_six_seconds_before_the_fallback(self):
+        self.assertEqual(REMOTE_TIMEOUT_S, 6)
 
     def test_auto_mode_keeps_the_local_fallback(self):
         local = _Local()

@@ -9,6 +9,7 @@ El audio se decodifica una sola vez por turno: el mismo PCM va al filtro de habl
 transcripción y a la verificación de hablante. Nada de esto va a disco ni a logs (PRIV-1, PRIV-4).
 """
 import logging
+import os
 import threading
 
 from voice.transcribe import Engines, Transcript, transcribe
@@ -20,17 +21,6 @@ NOT_AVAILABLE = {"status": "NOT_AVAILABLE", "score": None}
 
 class TranscriptionUnavailable(Exception):
     """Los motores de transcripción no están instalados en este entorno."""
-
-
-class RemoteSttFailed(Exception):
-    """Modo solo Groq: el proveedor falló y no hay respaldo local."""
-
-
-class _LocalDisabled:
-    """Respaldo local apagado (EZPAY_STT_PROVIDER=groq): si Groq falla, el turno falla."""
-
-    def transcribe(self, pcm):
-        raise RemoteSttFailed()
 
 
 class _CapturingDecoder:
@@ -59,12 +49,8 @@ class VoiceIO:
             try:
                 from voice.engines import build_default_engines
                 engines = build_default_engines()
-                if self.groq_only:
-                    import os
-                    engines = Engines(decoder=engines.decoder, speech_filter=engines.speech_filter,
-                                      remote=engines.remote, local=_LocalDisabled(), sleep=engines.sleep)
-                    if not os.environ.get("GROQ_API_KEY"):
-                        logger.error("EZPAY_STT_PROVIDER=groq but GROQ_API_KEY is not set: audio turns will fail")
+                if self.groq_only and not os.environ.get("GROQ_API_KEY"):
+                    logger.error("EZPAY_STT_PROVIDER=groq but GROQ_API_KEY is not set: turns will use the local fallback")
                 self._engines = engines
             except Exception as exc:  # ImportError de av/faster-whisper/numpy
                 self._engines_error = True
@@ -77,7 +63,7 @@ class VoiceIO:
                 self.enrollment = SpeakerEnrollment(self.verifier)
             except Exception as exc:  # numpy ausente
                 logger.warning("Speaker verification unavailable (%s)", type(exc).__name__)
-        if warmup_local and self._engines is not None and not self.groq_only:
+        if warmup_local and self._engines is not None:
             threading.Thread(target=self._warmup, daemon=True).start()
 
     def _warmup(self) -> None:
@@ -100,7 +86,7 @@ class VoiceIO:
         return bool(self.enrollment.status()["enrolled"])
 
     def consent_external(self) -> bool:
-        if self.groq_only:  # decisión del equipo (17 oct): la transcripción va siempre a Groq
+        if self.groq_only:  # decisión del equipo (17 oct): Groq siempre primero; el local solo es respaldo
             return True
         try:
             return bool(self.enrollment and self.enrollment.consent_external())
