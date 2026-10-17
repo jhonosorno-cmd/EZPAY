@@ -33,20 +33,20 @@ const pendingGrant = async (env: ReturnType<typeof build>) => {
   return { grantId: g.grantId, hash }
 }
 
-describe('cases Contract A does not cover map to existing codes (decision D-10a)', () => {
-  it('unknown route -> 500 INTERNAL_ERROR', async () => {
+describe('malformed requests answer 400 INVALID_REQUEST (v1.2 AB-1)', () => {
+  it('unknown route -> 400 INVALID_REQUEST', async () => {
     const { app } = build()
     const r = await request(app).get('/v1/does-not-exist')
-    expect(r.status).toBe(500)
-    expect(r.body.error.code).toBe('INTERNAL_ERROR')
+    expect(r.status).toBe(400)
+    expect(r.body.error.code).toBe('INVALID_REQUEST')
   })
-  it('malformed JSON -> 500 INTERNAL_ERROR', async () => {
+  it('malformed JSON -> 400 INVALID_REQUEST', async () => {
     const { app } = build()
     const r = await request(app).post('/v1/grants').set('content-type', 'application/json').send('{bad')
-    expect(r.status).toBe(500)
-    expect(r.body.error.code).toBe('INTERNAL_ERROR')
+    expect(r.status).toBe(400)
+    expect(r.body.error.code).toBe('INVALID_REQUEST')
   })
-  it('missing userId, walletAddress, finishUri, limit or limit.debitAmount -> 500 INTERNAL_ERROR', async () => {
+  it('missing userId, walletAddress, finishUri, limit or limit.debitAmount -> 400 INVALID_REQUEST', async () => {
     const { app } = build()
     for (const body of [
       grantBody({ userId: undefined }),
@@ -57,8 +57,8 @@ describe('cases Contract A does not cover map to existing codes (decision D-10a)
       grantBody({ limit: '100.00' }),
     ]) {
       const r = await request(app).post('/v1/grants').send(body)
-      expect(r.status, JSON.stringify(body)).toBe(500)
-      expect(r.body.error.code).toBe('INTERNAL_ERROR')
+      expect(r.status, JSON.stringify(body)).toBe(400)
+      expect(r.body.error.code).toBe('INVALID_REQUEST')
     }
   })
   it('unsupported interval -> 400 INVALID_AMOUNT', async () => {
@@ -66,6 +66,28 @@ describe('cases Contract A does not cover map to existing codes (decision D-10a)
     const r = await request(app).post('/v1/grants').send(grantBody({ limit: { debitAmount: cop(100_00), interval: 'R1/2026-10-16T00:00:00Z/P1M' } }))
     expect(r.status).toBe(400)
     expect(r.body.error.code).toBe('INVALID_AMOUNT')
+  })
+  it('missing or non-string grantId in POST /v1/quotes -> 400 INVALID_REQUEST (was 404 GRANT_NOT_FOUND)', async () => {
+    const env = build()
+    for (const body of [
+      { receiver: LAURA, receiveAmount: cop(1) },
+      { grantId: 123, receiver: LAURA, receiveAmount: cop(1) },
+    ]) {
+      const r = await request(env.app).post('/v1/quotes').send(body)
+      expect(r.status, JSON.stringify(body)).toBe(400)
+      expect(r.body.error.code).toBe('INVALID_REQUEST')
+    }
+    await expect(env.svc.createQuote({ grantId: 'g_inexistente', receiver: LAURA, receiveAmount: cop(1) })).rejects.toMatchObject({ code: 'GRANT_NOT_FOUND', status: 404 })
+  })
+  it('missing or non-string quoteId in POST /v1/payments -> 400 INVALID_REQUEST (was 404 QUOTE_NOT_FOUND)', async () => {
+    const env = build()
+    for (const body of [{}, { quoteId: 123 }]) {
+      const r = await request(env.app).post('/v1/payments').set('idempotency-key', 'k-alta').send(body)
+      expect(r.status, JSON.stringify(body)).toBe(400)
+      expect(r.body.error.code).toBe('INVALID_REQUEST')
+    }
+    await expect(env.svc.pay(undefined, { quoteId: 'q_algo' })).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REQUIRED', status: 400 })
+    await expect(env.svc.pay('k-otra', { quoteId: 'q_nadie' })).rejects.toMatchObject({ code: 'QUOTE_NOT_FOUND', status: 404 })
   })
 })
 
@@ -122,7 +144,7 @@ describe('every emitted error code is in the Contract A enum', () => {
     const filtered = codes.filter((c) => c !== undefined)
     expect(filtered.length).toBeGreaterThanOrEqual(14)
     for (const code of filtered) expect(CONTRACT_CODES, `code ${code} is not in the Contract A enum`).toContain(code)
-    for (const expected of ['INTERNAL_ERROR', 'INVALID_AMOUNT', 'INVALID_WALLET', 'INVALID_RECEIVER', 'INVALID_HASH', 'GRANT_REJECTED', 'GRANT_NOT_FOUND', 'GRANT_NOT_PENDING', 'GRANT_INVALID', 'IDEMPOTENCY_KEY_REQUIRED', 'QUOTE_NOT_FOUND', 'PAYMENT_NOT_FOUND', 'UPSTREAM_ERROR'])
+    for (const expected of ['INVALID_REQUEST', 'INVALID_AMOUNT', 'INVALID_WALLET', 'INVALID_RECEIVER', 'INVALID_HASH', 'GRANT_REJECTED', 'GRANT_NOT_FOUND', 'GRANT_NOT_PENDING', 'GRANT_INVALID', 'IDEMPOTENCY_KEY_REQUIRED', 'QUOTE_NOT_FOUND', 'PAYMENT_NOT_FOUND', 'UPSTREAM_ERROR'])
       expect(filtered, `the battery never exercised ${expected}`).toContain(expected)
   })
 })

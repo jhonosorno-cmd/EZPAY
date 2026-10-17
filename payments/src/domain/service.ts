@@ -127,11 +127,11 @@ export class PaymentsService {
   // ------------------------------------------------------------------ grants
   async createGrant(body: any) {
     const b = body ?? {}
-    if (typeof b.userId !== 'string' || !b.userId) throw err(500, 'INTERNAL_ERROR', 'userId is required')
-    if (typeof b.walletAddress !== 'string' || !b.walletAddress) throw err(500, 'INTERNAL_ERROR', 'walletAddress is required')
-    if (typeof b.finishUri !== 'string' || !b.finishUri) throw err(500, 'INTERNAL_ERROR', 'finishUri is required')
+    if (typeof b.userId !== 'string' || !b.userId) throw err(400, 'INVALID_REQUEST', 'userId is required')
+    if (typeof b.walletAddress !== 'string' || !b.walletAddress) throw err(400, 'INVALID_REQUEST', 'walletAddress is required')
+    if (typeof b.finishUri !== 'string' || !b.finishUri) throw err(400, 'INVALID_REQUEST', 'finishUri is required')
     if (typeof b.limit !== 'object' || b.limit === null || typeof b.limit.debitAmount !== 'object' || b.limit.debitAmount === null)
-      throw err(500, 'INTERNAL_ERROR', 'limit.debitAmount object is required')
+      throw err(400, 'INVALID_REQUEST', 'limit.debitAmount object is required')
     const debitAmount = parseAmount(b.limit.debitAmount, 'limit.debitAmount')
     const interval = b.limit?.interval
     if (interval !== undefined && (typeof interval !== 'string' || !parseInterval(interval)))
@@ -202,7 +202,7 @@ export class PaymentsService {
   // ------------------------------------------------------------------ quotes
   async createQuote(body: any) {
     const b = body ?? {}
-    if (typeof b.grantId !== 'string') throw err(404, 'GRANT_NOT_FOUND')
+    if (typeof b.grantId !== 'string' || !b.grantId) throw err(400, 'INVALID_REQUEST', 'grantId is required')
     const receiveAmount = parseAmount(b.receiveAmount, 'receiveAmount')
     if (typeof b.receiver !== 'string' || !b.receiver) throw err(400, 'INVALID_RECEIVER', 'receiver is required')
     const g = this.load(b.grantId)
@@ -236,7 +236,7 @@ export class PaymentsService {
   async pay(key: string | undefined, body: any): Promise<HttpResult> {
     if (!key) throw err(400, 'IDEMPOTENCY_KEY_REQUIRED')
     const quoteId = body?.quoteId
-    if (typeof quoteId !== 'string' || !quoteId) throw err(404, 'QUOTE_NOT_FOUND')
+    if (typeof quoteId !== 'string' || !quoteId) throw err(400, 'INVALID_REQUEST', 'quoteId is required')
 
     // La reserva es síncrona (PK): ocurre antes de cualquier await.
     if (!this.store.reserveKey(key, quoteId, this.now())) return this.existingKey(key, quoteId)
