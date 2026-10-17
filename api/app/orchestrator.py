@@ -258,7 +258,7 @@ class Orchestrator:
                                                    cmd.intent["amount"]["value"], request_id=rid)
         except PaymentsError as err:
             if err.code in ("GRANT_INVALID", "GRANT_NOT_FOUND") and grant_id == self.wallet.budget_grant_id:
-                self._forget_budget(grant_id)
+                self._forget_budget(grant_id, rid)
             return err.code or "UPSTREAM_ERROR"
         except UpstreamUnavailable:
             raise ApiFailure(502, "UPSTREAM_ERROR", "No se pudo contactar al servicio de pagos") from None
@@ -442,7 +442,7 @@ class Orchestrator:
                     return self._start_excess_auth(session, cmd, phrases.say(phrases.Situation.AUTH_REDIRECT), None, rid)
                 if err.code == "GRANT_INVALID":
                     if cmd.quote_grant_id == self.wallet.budget_grant_id:
-                        self._forget_budget(cmd.quote_grant_id)
+                        self._forget_budget(cmd.quote_grant_id, rid)
                         return self._start_budget_auth(session, phrases.say(phrases.Situation.AUTH_BUDGET), None, rid)
                     return self._start_excess_auth(session, cmd, phrases.say(phrases.Situation.AUTH_REDIRECT), None, rid)
                 if err.code == "QUOTE_EXPIRED" and attempt == 0:
@@ -589,7 +589,9 @@ class Orchestrator:
             raise ApiFailure(502, "UPSTREAM_ERROR", "No se pudo contactar al servicio de pagos") from None
 
     def _start_budget_auth(self, session, say, transcript, rid) -> TurnResult:
-        grant = self._create_grant(self.settings.default_budget_value, self.settings.default_budget_interval, rid)
+        value = getattr(self, "_renew_value", None) or self.settings.default_budget_value
+        self._renew_value = None
+        grant = self._create_grant(value, self.settings.default_budget_interval, rid)
         self._replace_pending_auth(PendingAuth("budget", grant["grantId"], session.id), rid)
         session.state = TurnState.AWAITING_AUTHORIZATION
         return TurnResult(session, say, transcript=transcript, interact_url=grant["interactUrl"])
@@ -618,7 +620,14 @@ class Orchestrator:
         except (PaymentsError, UpstreamUnavailable) as err:
             logger.warning("One-off grant cancel failed requestId=%s (%s)", rid, type(err).__name__)
 
-    def _forget_budget(self, grant_id) -> None:
+    def _forget_budget(self, grant_id, rid=None) -> None:
+        """Olvida el presupuesto inválido y guarda su `remaining` para pedir el nuevo por ese monto
+        (payments-client, "Grant de presupuesto inválido": no devolverle lo ya gastado)."""
+        try:
+            remaining = self.payments.get_grant(grant_id, request_id=rid)["remaining"]["value"]
+            self._renew_value = remaining if int(remaining) > 0 else None
+        except Exception:
+            self._renew_value = None
         if self.wallet.budget_grant_id == grant_id:
             self.wallet.budget_grant_id = None
             self.wallet.save()

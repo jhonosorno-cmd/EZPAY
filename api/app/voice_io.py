@@ -114,6 +114,17 @@ class VoiceIO:
         return self._engines.decoder.decode(audio)
 
     # ------------------------------------------------------------------- turno
+    def _as_supported_container(self, audio: bytes) -> bytes:
+        """Safari graba MP4/AAC y algunos navegadores OGG; el validador de Voz solo lee WAV y WebM.
+        Se reempaqueta a WAV en memoria (mismo PCM, nada a disco) para que pase la validación."""
+        is_mp4 = len(audio) >= 12 and audio[4:8] == b"ftyp"
+        is_ogg = audio[:4] == b"OggS"
+        if not (is_mp4 or is_ogg):
+            return audio
+        from voice.engines import _pcm_to_wav_bytes  # mismo WAV que recibe Groq
+        pcm = self._engines.decoder.decode(audio)   # TranscribeInputError si no se puede leer
+        return _pcm_to_wav_bytes(pcm)
+
     def transcribe_command(self, audio: bytes, request_id: str, verify: bool) -> tuple[Transcript, dict]:
         """Transcribe el audio y, si `verify`, verifica la voz del mismo PCM (solo comandos, D4).
 
@@ -122,6 +133,7 @@ class VoiceIO:
         """
         if self._engines is None:
             raise TranscriptionUnavailable()
+        audio = self._as_supported_container(audio)
         capture = _CapturingDecoder(self._engines.decoder)
         engines = Engines(decoder=capture, speech_filter=self._engines.speech_filter,
                           remote=self._engines.remote, local=self._engines.local, sleep=self._engines.sleep)

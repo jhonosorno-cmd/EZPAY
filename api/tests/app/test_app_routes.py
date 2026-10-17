@@ -231,6 +231,18 @@ class TestExcessAndPending(AppCase):
         self.assertEqual(len(keys), 1)  # misma Idempotency-Key en el reintento
 
 
+class TestBudgetRenewal(AppCase):
+    def test_invalid_budget_is_renewed_for_its_remaining(self):
+        self.with_budget()
+        old = self.orch.wallet.budget_grant_id
+        self.node.grants[old]["remaining"] = {"value": "12345600", "assetCode": "COP", "assetScale": 2}
+        self.node.invalid.add(old)
+        body = self.turn(audio="envíale veinte mil a mi hija")
+        self.assertEqual(body["state"], "AWAITING_AUTHORIZATION")
+        grant_call = [c for c in self.node.calls if c[0] == "create_grant"][-1]
+        self.assertEqual(grant_call[1], "12345600")  # no le devuelve a la usuaria lo ya gastado
+
+
 class TestEnrollment(AppCase):
     def test_status(self):
         res = self.client.get("/api/enrollment")

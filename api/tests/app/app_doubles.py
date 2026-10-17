@@ -55,6 +55,7 @@ class FakePayments:
         self.payment_status = "COMPLETED"
         self.payment_pending = False
         self.payments: dict[str, dict] = {}
+        self.invalid: set[str] = set()
         self._n = 0
 
     def _id(self, prefix):
@@ -82,13 +83,15 @@ class FakePayments:
             raise PaymentsError(404, "GRANT_NOT_FOUND")
         grant = self.grants[grant_id]
         return {"grantId": grant_id, "status": grant["status"], "limit": grant["limit"], "spent": amt("0"),
-                "remaining": grant["limit"]["debitAmount"]}
+                "remaining": grant.get("remaining", grant["limit"]["debitAmount"])}
 
     def cancel_grant(self, grant_id, request_id=None):
         self.calls.append(("cancel_grant", grant_id))
 
     def create_quote(self, grant_id, receiver, receive_value, request_id=None):
         self.calls.append(("create_quote", grant_id, receiver, receive_value))
+        if grant_id in self.invalid:
+            raise PaymentsError(401, "GRANT_INVALID")
         debit = str(int(receive_value) + int(self.fee))
         return {"quoteId": self._id("q"), "debitAmount": amt(debit), "receiveAmount": amt(receive_value),
                 "expiresAt": "2026-10-17T12:00:00Z", "exceedsRemaining": self.exceeds(grant_id, receive_value)}

@@ -40,6 +40,27 @@ def voice_io(remote, local):
     return io
 
 
+class _Mp4Decoder:
+    def __init__(self):
+        self.seen = []
+
+    def decode(self, audio):
+        self.seen.append(audio[:12])
+        import numpy as np
+        return np.zeros(1600, dtype="float32")
+
+
+class SafariAudioTest(unittest.TestCase):
+    def test_mp4_is_repacked_to_wav_before_validation(self):
+        decoder, remote = _Mp4Decoder(), _Remote()
+        io = VoiceIO(engines=Engines(decoder, _Speech(), remote, _LocalDisabled()), stt_provider="groq")
+        mp4 = b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 64
+        transcript, _ = io.transcribe_command(mp4, "rid-mp4", verify=False)
+        self.assertEqual(transcript.engine, Engine.GROQ)
+        self.assertEqual(decoder.seen[0][4:8], b"ftyp")      # se decodificó el mp4 original
+        self.assertEqual(decoder.seen[1][:4], b"RIFF")       # y el transcriptor recibió WAV
+
+
 class GroqOnlyTest(unittest.TestCase):
     def test_groq_is_used_without_enrollment_consent(self):
         remote = _Remote()
