@@ -24,7 +24,8 @@ export interface OpenPaymentsPort {
   }): Promise<{ interactUrl: string; interactNonce: string; continueUri: string; continueToken: string }>
   /** Lanza OpError('forbidden') si el usuario rechazó. */
   continueGrant(a: { continueUri: string; continueToken: string; interactRef: string }): Promise<AccessToken>
-  cancelGrant(a: { manageUrl: string; accessToken: string }): Promise<void>
+  /** Cancela el grant con GNAP grant.cancel (DELETE sobre la continue URI). Lanza OpError si la wallet falla. */
+  cancelGrant(a: { continueUri: string; continueToken: string }): Promise<void>
   rotateToken(a: { manageUrl: string; accessToken: string }): Promise<AccessToken>
   createQuote(a: {
     sender: WalletInfo
