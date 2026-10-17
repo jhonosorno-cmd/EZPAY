@@ -103,6 +103,18 @@ Decisión de Sebastián sobre tu D-1 (2026-10-16): opción a). Voz adopta `kind=
 No cambies nada más. Al terminar, responde a la sesión padre con la lista de lo cambiado (una línea por punto) y espera.
 ````
 
+### A4 — Decisiones D-2, D-3 y D-4 de Sebastián
+
+````text
+Decisiones de Sebastián (2026-10-16): D-2 a), D-3 a) y D-4 a). Aplícalas sobre tus archivos de `C:\Users\sebas\Pruebas\_agentes\specs\` con las mismas reglas duras (nada dentro de `C:\Users\sebas\Pruebas\EZPAY`; para leer la rama de Daniel usa `git show origin/H2:<ruta>`), mantén cada requisito en 500 caracteres o menos y regenera los `.diff`:
+
+1. D-2 a): el orquestador (Pagos) lee el consentimiento del estado de enrolamiento de ML 2 y se lo pasa a `transcribe` como parámetro `consentExterno`; `transcribe` NO consulta el enrolamiento. En `speech-transcription/spec.md` marca el requisito del consentimiento como [DECIDIDO, Sebastián 2026-10-16] y deja explícito quién guarda (ML 2), quién lee y pasa (orquestador de Pagos) y quién decide Groq o local (Voz). En `propuestas-equipo.md` agrega P-9 para Daniel: en `origin/H2:openspec/changes/add-decision-engine/specs/voice-enrollment/spec.md` (requisito "El consentimiento único cubre el proveedor externo", y su escenario) y en `specs/speaker-verification/spec.md` (escenario de borrado de la huella), la frase "Voz lo consulta como `consentExterno`" pasa a "el orquestador lo lee y se lo pasa a Voz como `consentExterno`". Cita el texto actual exacto y el propuesto. Aprueba: Daniel (dueño); avisa a Pagos.
+2. D-3 a): los cortes de confianza se fijan con la batería de audio real de H3; si el sábado 17 antes de las 10:00 no hay evidencia, se ratifica `null` y se anota en `docs/decisiones.md`. Refleja esto en los requisitos de puntaje de `speech-transcription` e `intent-extraction` (quita el [PARA DECIDIR] de la fecha, deja el dueño Sebastián), en `tasks.md` (tarea H3 con ese plazo) y en `propuestas-equipo.md` como P-10: la línea de `docs/decisiones.md` que se agregaría si se ratifica `null` (redáctala, no la apliques).
+3. D-4 a): se ratifica, por parte de Voz, la lista cerrada de afirmativos tal como está implementada (`docs/voz/contrato-voz.md` §8 y `api/voice/replies.py`). En `reply-classification/spec.md` marca la lista como [DECIDIDO por Voz, 2026-10-16; ratificación del equipo pendiente] y cita explícitamente los afirmativos, rellenos, excluidos y negaciones en un requisito con escenarios ("ok" y "listo" ⇒ `UNCLEAR`; "sí, no" ⇒ `UNCLEAR`). En `propuestas-equipo.md` agrega P-11: en `docs/voz/contrato-voz.md` §8 cambiar la etiqueta "[PROPUESTA, D5]" por "[DECIDIDO, D5]" (texto actual → propuesto). Actualiza `tasks.md` 1.4.
+4. `decisiones-para-sebastian.md`: marca D-2, D-3 y D-4 como "Resuelta: a), Sebastián, 2026-10-16".
+Al terminar, responde a la sesión padre con la lista de lo cambiado (una línea por punto) y espera.
+````
+
 ---
 
-Registro: 2026-10-16 23:11 (hora de guardado; A1 enviada a las 22:46, A2 entre las 22:59 y las 23:05, A3 a las 23:11) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) en A1 y Claude Opus 5.5 (`claude-opus-5-5`) en A2 y A3, sesión padre · Origen: instrucciones A1, A2 y A3 enviadas al agente Constructor Specs (`0334e8e7`).
+Registro: 2026-10-16 23:24 (hora de guardado; A1 enviada a las 22:46, A2 entre las 22:59 y las 23:05, A3 a las 23:11, A4 a las 23:24) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) en A1 y Claude Opus 5.5 (`claude-opus-5-5`) en A2 y A3, sesión padre · Origen: instrucciones A1, A2 y A3 enviadas al agente Constructor Specs (`0334e8e7`).
