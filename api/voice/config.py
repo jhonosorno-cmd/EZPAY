@@ -14,3 +14,11 @@ AUDIO_MAX_DURATION_S = 30  # se lee de la cabecera antes de decodificar; más ->
 REMOTE_TIMEOUT_S = 3       # plazo del proveedor externo (Groq); lo aplica el motor real (Fase 2)
 TURN_BUDGET_S = 8          # plazo del turno; un retry-after que no cabe -> respaldo local
 MAX_REMOTE_ATTEMPTS = 2    # intento inicial más un reintento si el retry-after cabe en el plazo
+
+# Motores reales (Fase 2). Ningún secreto: la llave solo vive en el entorno (GROQ_API_KEY).
+GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+GROQ_MODEL = "whisper-large-v3-turbo"
+WHISPER_LOCAL_MODEL = "base"
+SAMPLE_RATE = 16000              # PCM objetivo: float32, 16 kHz, mono (contrato-voz §4)
+SPEECH_RMS_THRESHOLD = 0.01      # RMS mínimo (PCM de -1 a 1) para considerar que hay habla
+SPEECH_MIN_SECONDS = 0.25        # duración menor a la mínima: no hay habla (filtro previo)
