@@ -5,6 +5,7 @@ El audio es sintético: cabeceras WAV generadas aquí, nunca archivos ni audio r
 de prueba que registran sus llamadas; su contenido no importa en Fase 1."""
 import ast
 import importlib
+import struct
 import sys
 from pathlib import Path
 
@@ -94,6 +95,25 @@ class FakeSleep:
 def make_engines(has_speech=True, remote=None, local=None, decoder=None, sleep=None) -> Engines:
     return Engines(decoder=decoder or FakeDecoder(), speech_filter=FakeFilter(has_speech),
                    remote=remote or FakeRemote(), local=local or FakeLocal(), sleep=sleep)
+
+
+# --- WebM/Opus sintético de cabecera (EBML mínimo, nunca se decodifica)
+def _vint_size(n: int) -> bytes:
+    for length in range(1, 9):
+        if n < (1 << (7 * length)) - 1:
+            return (n | (1 << (7 * length))).to_bytes(length, "big")
+    raise ValueError("vint too big")
+
+
+def webm_bytes(duration_ms: "float | None") -> bytes:
+    """EBML mínimo: cabecera + Segment + Info {Duration?, TimecodeScale}. Duration None = desconocida."""
+    info = b""
+    if duration_ms is not None:
+        info += b"\x44\x89" + _vint_size(8) + struct.pack(">d", duration_ms)
+    info += b"\x2a\xd7\xb1" + _vint_size(3) + (1000000).to_bytes(3, "big")
+    seg_body = b"\x15\x49\xa9\x66" + _vint_size(len(info)) + info
+    return (b"\x1a\x45\xdf\xa3" + _vint_size(0)
+            + b"\x18\x53\x80\x67" + _vint_size(len(seg_body)) + seg_body)
 
 
 # --- Escenarios del spec: consentimiento
@@ -232,6 +252,35 @@ def test_audio_de_30_s_exacto_pasa_la_validacion():
     assert decoder.calls == 1
 
 
+# --- Escenarios Fase 2: cabecera WebM/Opus (EBML) antes de decodificar
+def test_webm_de_60_s_con_duracion_es_too_long_por_cabecera():
+    decoder = FakeDecoder()
+    with pytest.raises(TranscribeInputError) as err:
+        transcribe(webm_bytes(60000), "req-1", False, make_engines(decoder=decoder))
+    assert err.value.code is TranscribeErrorCode.AUDIO_TOO_LONG
+    assert decoder.calls == 0
+
+
+def test_webm_de_30_s_exacto_pasa_la_validacion():
+    decoder = FakeDecoder()
+    transcribe(webm_bytes(30000), "req-1", False, make_engines(decoder=decoder, has_speech=False))
+    assert decoder.calls == 1
+
+
+def test_webm_corto_con_duracion_pasa_la_validacion():
+    decoder = FakeDecoder()
+    result = transcribe(webm_bytes(2000), "req-1", True,
+                        make_engines(decoder=decoder, has_speech=False))
+    assert result.engine is Engine.NONE
+    assert decoder.calls == 1
+
+
+def test_webm_con_duracion_desconocida_pasa_la_validacion():
+    decoder = FakeDecoder()
+    transcribe(webm_bytes(None), "req-1", False, make_engines(decoder=decoder, has_speech=False))
+    assert decoder.calls == 1
+
+
 def test_bytes_basura_es_invalid_audio_sin_decodificar():
     decoder = FakeDecoder()
     with pytest.raises(TranscribeInputError) as err:
@@ -297,7 +346,11 @@ def test_transcribe_sin_disco_ni_red_ni_logs_ni_llaves():
 
 
 def test_transcribe_sin_float_ni_dinero():
+    # El audio usa float32 en los motores reales (engines.py); aquí solo se veta float como cálculo:
+    # conversiones float()/round()/Decimal, constantes float y divisiones (dinero = amounts.py).
     for node in ast.walk(_transcribe_tree()):
-        assert not (isinstance(node, ast.Name) and node.id in {"float", "round", "Decimal"})
+        assert not (isinstance(node, ast.Name) and node.id in {"round", "Decimal"})
+        assert not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id in {"float", "round", "Decimal"})
         assert not (isinstance(node, ast.Constant) and isinstance(node.value, float))
         assert not (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div))
