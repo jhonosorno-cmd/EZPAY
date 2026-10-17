@@ -115,6 +115,20 @@ Decisiones de Sebastián (2026-10-16): D-2 a), D-3 a) y D-4 a). Aplícalas sobre
 Al terminar, responde a la sesión padre con la lista de lo cambiado (una línea por punto) y espera.
 ````
 
+### A5 — `design.md` con trazabilidad para `add-voice-understanding`
+
+````text
+Orden de la sesión padre: nuevo entregable (A5) sobre tus archivos de `C:\Users\sebas\Pruebas\_agentes\specs\` (nada dentro de `C:\Users\sebas\Pruebas\EZPAY`), con las mismas reglas duras de antes.
+
+Tu cambio `add-voice-understanding` no tiene `design.md`; el de ML 2 sí (leelo completo con `git show origin/H2:openspec/changes/add-decision-engine/design.md`). Redacta `design.md` para `add-voice-understanding` con el MISMO formato (español neutro, tablas Markdown, título "Diseño — add-voice-understanding"):
+
+1. Encabezado: "Material de referencia de las capabilities `amount-parsing`, `contact-resolution`, `intent-extraction`, `reply-classification` y `speech-transcription`: trazabilidad, tablas y tipos que los requisitos citan, y puntos abiertos. Los requisitos y escenarios normativos están en `specs/`."
+2. Una sección `### <capability>` por cada una de las cinco, con tabla `Requisito | Origen`: cada requisito del spec de esa capability (cítalo por su nombre exacto) con su origen y evidencia (`docs/voz/contrato-voz.md` §, `docs/decisiones.md`, contratos v1 y v1.1, `add-decision-engine/design.md`, `api/voice/RESULTADOS.md`, mocks de `openapi/`, prompts de `prompts/Sebasruiz00/`).
+3. Secciones de referencia: "El contexto que consume el motor" (la forma `to_dict()` camelCase y `transcriptConfidence`/`intentConfidence` como `number|null`), "Experimentos de Voz" (X-1 comparación de motores whisper y X-4 formato de audio del navegador; resultados en `prompts/pre-evento/voz-plantillas-del-evento.md`) y "Tabla de jerga pendiente [VERIFICAR]" (`amount-parsing/spec.md`).
+4. "Puntos abiertos" al final: ratificación de `kind=verify_pending` (P-8), propuestas a `docs/` (P-1 a P-7, P-11) y cortes de confianza (P-10).
+Reglas: no inventes nada y no agregues requisitos ni escenarios nuevos: esto es trazabilidad y referencia, no spec. Máximo 120 líneas. Si un requisito no tiene origen citable, márcalo "(inferencia)". Al terminar, responde con el nombre del archivo creado y nada más.
+````
+
 ## B. Builder
 
 ### B1 — `transcribe`, Fase 1 (lógica sin dependencias)
