@@ -107,7 +107,8 @@ la quote nueva tenga `exceedsRemaining: true`.
 ### Requirement: Reautorización puntual por exceso de límite
 Ante `exceedsRemaining: true` en la quote, o `403 LIMIT_EXCEEDED` de `POST /v1/payments`, el
 cliente SHALL pedir un **grant puntual**: `POST /v1/grants` con `limit.debitAmount` igual al
-`debitAmount` de la quote que excedió y sin `interval`; el turno pasa a `AWAITING_AUTHORIZATION`.
+`debitAmount` de la quote que excedió y `limit.interval` semanal de una sola repetición
+(`R1/<hoy 00:00:00Z>/P1W`); el turno pasa a `AWAITING_AUTHORIZATION`.
 Tras el callback y el `/continue` exitoso, recotiza con el `grantId` del puntual; si la quote
 nueva entra, paga con clave nueva. El grant de presupuesto queda intacto y se sigue usando para
 los pagos siguientes.
@@ -123,13 +124,15 @@ los pagos siguientes.
 - **GIVEN** un grant de presupuesto con límite de 200.00 y 180.00 restantes
 - **WHEN** la quote del pedido de 300.00 tiene `debitAmount` de 300.00 y `exceedsRemaining: true`,
   y el usuario dice "sí"
-- **THEN** el grant puntual se pide con `debitAmount` de 300.00 y sin `interval`
+- **THEN** el grant puntual se pide con `debitAmount` de 300.00 y `limit.interval` `R1/<hoy 00:00:00Z>/P1W`
+  (decisión #1 del 16 oct; la Test Wallet lo acepta y lo devuelve, ver
+  `payments/experiments/weekly-interval-and-token.md`, sección P1)
 - **AND** después del pago con el grant puntual, `GET /v1/grants/{grant de presupuesto}` sigue
   mostrando 180.00 restantes
 
 #### Scenario: Límite excedido al pagar
 - **WHEN** `POST /v1/payments` responde `403 LIMIT_EXCEEDED`
-- **THEN** el cliente pide el grant puntual (mismo `debitAmount` de la quote, sin `interval`)
+- **THEN** el cliente pide el grant puntual (mismo `debitAmount` de la quote, con `limit.interval` `R1/<hoy 00:00:00Z>/P1W`)
 - **AND** el turno pasa a `AWAITING_AUTHORIZATION` sin pagar con el grant de presupuesto
 
 #### Scenario: Recotización después del callback
@@ -209,7 +212,7 @@ nuevo** con `limit.debitAmount` igual al `remaining` del grant que falló, consu
 
 ### Requirement: Grant puntual inválido
 Ante un `401 GRANT_INVALID` del grant puntual, el cliente SHALL pedir **otro grant puntual
-igual**: mismo `debitAmount` de la quote que excedió, sin `interval`. El turno pasa a
+igual**: mismo `debitAmount` de la quote que excedió, con `limit.interval` `R1/<hoy 00:00:00Z>/P1W`. El turno pasa a
 `AWAITING_AUTHORIZATION`.
 
 #### Scenario: Vence el grant puntual

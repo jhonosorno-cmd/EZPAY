@@ -331,12 +331,21 @@ Si todas las validaciones pasan, `POST /v1/payments` SHALL crear el outgoing pay
 - **AND** `GET /v1/grants/{grantId}` muestra `remaining` de 179.85
 
 ### Requirement: Token del grant inválido
-Los access tokens duran 600 s. El servicio SHALL rotarlos cuando están por vencer o ante un `401`, reintentando una vez. Si no puede rotarlo, MUST responder `401 GRANT_INVALID` para que el cliente pida un grant nuevo. [VERIFICAR] `token.rotate` en E4.
+Los access tokens duran 600 s. El servicio SHALL rotarlos cuando están por vencer, ante un `401`,
+o ante un `403` del servidor cuyo `debitAmount` entra en lo que queda del grant, reintentando una
+vez en cada caso. Si no puede rotarlo, MUST responder `401 GRANT_INVALID` para que el cliente pida
+un grant nuevo. [VERIFICAR] `token.rotate` en E4.
 
 #### Scenario: Grant usado después de 10 minutos
 - **GIVEN** un grant ACTIVE cuyo access token se emitió hace 11 minutos
 - **WHEN** llega `POST /v1/payments` dentro del presupuesto
 - **THEN** el servicio rota el token y el pago se crea con éxito
+
+#### Scenario: 403 con token vencido y monto dentro del límite
+- **GIVEN** un grant ACTIVE cuyo access token venció en la wallet aunque el servicio lo cree vigente
+- **WHEN** llega `POST /v1/payments` dentro del presupuesto y Open Payments rechaza el pago con su `403` genérico
+- **THEN** el servicio rota el token una vez y reintenta el pago con la misma `Idempotency-Key`
+- **AND** el pago se crea, el token nuevo queda guardado y no se debita dos veces
 
 #### Scenario: Token revocado
 - **GIVEN** un grant ACTIVE cuyo token fue revocado en la wallet
