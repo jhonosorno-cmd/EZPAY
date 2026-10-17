@@ -10,11 +10,13 @@ info:
     Conventions: every error is `{ error: { code, message } }` and clients decide by `code`
     (CONV-2). Amounts are `{ value, assetCode, assetScale }` with digit-only `value` (CONV-1).
     Any endpoint can answer `500 INTERNAL_ERROR`; Python treats it like `502 UPSTREAM_ERROR`.
+    Any endpoint can answer `400 INVALID_REQUEST` for a malformed request: invalid JSON, a missing
+    or invalid required field, or an unknown route (v1.2, AB-1). It is a caller error, not an outage.
 
     Mock usage: `npm run mock:a`, then pick a response with the Prism header
     `Prefer: code=<status>, example=<example-name>`.
 
-    Changes from v1.1 are tagged with `x-contract-change`.
+    Changes from v1.1 and v1.2 are tagged with `x-contract-change`.
 servers:
   - url: http://localhost:4000
     description: Node payments service (internal, never exposed to the browser)
@@ -62,6 +64,8 @@ paths:
                   value: { error: { code: INVALID_AMOUNT, message: El monto no es válido } }
                 invalid-wallet:
                   value: { error: { code: INVALID_WALLET, message: La billetera no existe } }
+                invalid-request:
+                  value: { error: { code: INVALID_REQUEST, message: La petición no es válida } }
         '502':
           $ref: '#/components/responses/UpstreamError'
         '500':
@@ -114,6 +118,8 @@ paths:
                       debitAmount: { value: '20000000', assetCode: COP, assetScale: 2 }
                     spent: { value: '20000000', assetCode: COP, assetScale: 2 }
                     remaining: { value: '0', assetCode: COP, assetScale: 2 }
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '404':
           $ref: '#/components/responses/GrantNotFound'
         '500':
@@ -181,6 +187,8 @@ paths:
               examples:
                 invalid-hash:
                   value: { error: { code: INVALID_HASH, message: El hash de la autorización no coincide } }
+                invalid-request:
+                  value: { error: { code: INVALID_REQUEST, message: La petición no es válida } }
         '403':
           description: The user rejected the grant in the wallet.
           content:
@@ -260,6 +268,8 @@ paths:
                   value: { error: { code: INVALID_AMOUNT, message: El monto no es válido } }
                 invalid-receiver:
                   value: { error: { code: INVALID_RECEIVER, message: El destinatario no es válido } }
+                invalid-request:
+                  value: { error: { code: INVALID_REQUEST, message: La petición no es válida } }
         '401':
           $ref: '#/components/responses/GrantInvalid'
         '404':
@@ -329,6 +339,8 @@ paths:
               examples:
                 idempotency-key-required:
                   value: { error: { code: IDEMPOTENCY_KEY_REQUIRED, message: Falta el header Idempotency-Key } }
+                invalid-request:
+                  value: { error: { code: INVALID_REQUEST, message: La petición no es válida } }
         '401':
           $ref: '#/components/responses/GrantInvalid'
         '403':
@@ -407,6 +419,8 @@ paths:
                     paymentId: p_789
                     status: FAILED
                     sentAmount: { value: '0', assetCode: COP, assetScale: 2 }
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
         '404':
           description: Unknown payment.
           content:
@@ -470,6 +484,16 @@ components:
           examples:
             upstream-error:
               value: { error: { code: UPSTREAM_ERROR, message: Open Payments no respondió } }
+    InvalidRequest:
+      description: Malformed request (invalid JSON, missing or invalid required fields, unknown route).
+      x-contract-change: AB-1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          examples:
+            invalid-request:
+              value: { error: { code: INVALID_REQUEST, message: La petición no es válida } }
     InternalError:
       description: Unexpected error. Python treats it like `UPSTREAM_ERROR`.
       content:
@@ -482,6 +506,7 @@ components:
   schemas:
     ErrorCode:
       type: string
+      x-contract-change: AB-1
       description: Decide by `code`, never by `message` (CONV-2).
       enum:
         - INVALID_AMOUNT
@@ -500,6 +525,7 @@ components:
         - IDEMPOTENCY_KEY_REQUIRED
         - IDEMPOTENCY_KEY_REUSED
         - UPSTREAM_ERROR
+        - INVALID_REQUEST
         - INTERNAL_ERROR
     ErrorBody:
       type: object
