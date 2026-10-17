@@ -46,8 +46,15 @@ def _cargar_env() -> None:
 
 MAX_SEGUNDOS = 15  # igual que el tope del navegador
 
+def _vaciar_teclado() -> None:
+    """Descarta teclas acumuladas (por ejemplo un comando pegado mientras corría el script)."""
+    while msvcrt.kbhit():
+        msvcrt.getwch()
+
+
 def _esperar_espacio() -> str:
     """Bloquea hasta ESPACIO ('espacio') o Q ('q')."""
+    _vaciar_teclado()
     while True:
         tecla = msvcrt.getwch().lower()
         if tecla == " ":
@@ -61,6 +68,7 @@ def _grabar_hasta_espacio() -> np.ndarray:
     dispositivo = sd.query_devices(kind="input")
     rate_in = int(dispositivo["default_samplerate"])
     trozos: list[np.ndarray] = []
+    _vaciar_teclado()
 
     def callback(indata, frames, time_info, status):  # noqa: ARG001
         trozos.append(indata.copy())
