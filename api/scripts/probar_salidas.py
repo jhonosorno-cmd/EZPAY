@@ -37,8 +37,7 @@ def _grabar_y_transcribir(engines):
 
 def _libre(engines) -> int:
     """Modo libre: te va diciendo qué decir (frases con montos y nombres poco usuales) y muestra qué entendió."""
-    print("Modo libre: te voy diciendo qué decir y verás qué entendió el sistema. Q para salir.
-")
+    print("Modo libre: te voy diciendo qué decir y verás qué entendió el sistema. Q para salir.\n")
     for i, f in enumerate(FRASES_LIBRES, 1):
         esperado = f"monto {f.pesos:,}" if f.pesos is not None else "sin monto"
         print(f'[{i}/{len(FRASES_LIBRES)}] DI: "{f.decir}"')
@@ -46,8 +45,7 @@ def _libre(engines) -> int:
         try:
             t = _grabar_y_transcribir(engines)
         except TranscribeInputError as err:
-            print(f"  Error de audio: {err.code.value} - {err}
-")
+            print(f"  Error de audio: {err.code.value} - {err}\n")
             continue
         if t is None:
             return 0
@@ -60,8 +58,7 @@ def _libre(engines) -> int:
         print(f"  DESTINATARIO: {s['intent']['recipient'] or '-'}  ->  {s['resolution']['kind']}")
         print(f"  DECISIÓN    : {s['decision']['decision']} / {s['decision']['reason']}")
         print(f"  SE LE DICE  : {s['say']}")
-        print(f"  RESULTADO   : {'COINCIDE con lo esperado' if coincide else 'DIFIERE de lo esperado (mira la línea OYÓ)'}
-")
+        print(f"  RESULTADO   : {'COINCIDE con lo esperado' if coincide else 'DIFIERE de lo esperado (mira la línea OYÓ)'}\n")
     return 0
 
 
