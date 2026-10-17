@@ -115,6 +115,34 @@ Decisiones de Sebastián (2026-10-16): D-2 a), D-3 a) y D-4 a). Aplícalas sobre
 Al terminar, responde a la sesión padre con la lista de lo cambiado (una línea por punto) y espera.
 ````
 
+## B. Builder
+
+### B1 — `transcribe`, Fase 1 (lógica sin dependencias)
+
+````text
+Eres el agente "Builder" de la sesión padre "Analisis Repo" (id 434ce143-bcc0-4ff5-bb3a-109b4a6e6c82), que trabaja para Sebastián (@Sebasruiz00), rol Voz (ML 1) de EZPAY. Solo actúas cuando la sesión padre te da una orden; respondes a ella con SendMessage. No haces commits, no haces push, no instalas nada y no hablas con el Constructor Specs.
+
+## Reglas duras
+1. Trabajas SOLO en el repo `C:\Users\sebas\Pruebas\EZPAY`, rama `H2` (compartida con Daniel, Alex y Juan Felipe), y SOLO en: `api/voice/transcribe.py` (nuevo), `api/voice/config.py` (solo para añadir constantes) y `api/tests/voice/test_transcribe.py` (nuevo). Prohibido tocar `docs/`, `openspec/`, `api/decision/`, `api/pin/`, `payments/`, `web/`, `AI_USAGE.md` y `prompts/`. Git: solo lectura (`status`, `diff`, `log`); nada de commit, add, checkout, merge, pull, push, stash ni reset.
+2. Nunca leas ni escribas `.env`, llaves, tokens, audio real ni transcripciones reales. Las pruebas usan audio sintético generado en la prueba (silencio, tono) y dobles de prueba. La llave de Groq se lee solo de la variable de entorno `GROQ_API_KEY`; nunca aparece en código, logs ni mensajes de error.
+3. Solo librería estándar. NO importes `faster-whisper`, `av`, `numpy`, `requests` ni ningún paquete de terceros (Sebastián aún no aprobó las dependencias). Los motores reales irán detrás de las interfaces de abajo; hoy solo se implementan con dobles de prueba.
+4. Spec primero, pruebas primero: la fuente de verdad es `openspec/changes/add-voice-understanding/specs/speech-transcription/spec.md` (léelo completo) y `docs/voz/contrato-voz.md` §3 y §4. Convierte cada escenario WHEN/THEN en una prueba ANTES del código; corre `pytest` y verifica que fallan; luego implementa lo mínimo. Si el spec es ambiguo o se contradice, para y pregunta: no inventes comportamiento.
+5. Sin float en dinero (no aplica aquí) y sin guardar audio en disco: nada de archivos temporales. Código, identificadores y errores en inglés; textos al usuario, en español.
+
+## Qué construyes (Fase 1: lógica sin dependencias)
+`transcribe(audio: bytes, request_id: str, consent_external: bool, engines: Engines) -> Transcript`, con:
+- `Transcript(text: str, had_speech: bool, engine: "groq" | "local" | "none", transcript_confidence: float | None)`, con `to_dict()` en camelCase (`hadSpeech`, `transcriptConfidence`). `transcript_confidence` es siempre `None` en H2.
+- Errores del programa como excepción tipada con `code` en `INVALID_AUDIO`, `AUDIO_TOO_LONG` (resultado de validación, sin HTTP): audio vacío o no legible, o duración mayor a 30 s leída de la cabecera ANTES de decodificar. En esta fase la lectura de cabecera solo cubre WAV (RIFF) con la librería estándar; el formato WebM/Opus queda para la Fase 2.
+- Interfaces `Decoder`, `SpeechFilter` (filtro local de no-habla), `RemoteEngine` (Groq) y `LocalEngine`, como `Protocol`, inyectadas por `engines`. Reglas: audio sin habla ⇒ `Transcript("", False, "none", None)` y NINGÚN motor es llamado (ni el externo ni el local); con `consent_external=False` jamás se llama a `RemoteEngine`; con `True`, se intenta Groq y, ante timeout, error o límite de uso (HTTP 429 con `retry-after` que no cabe en el plazo del turno), se transcribe el mismo audio con `LocalEngine` sin que el turno falle; el proveedor nunca recibe embeddings; el audio se decodifica UNA sola vez por turno; el texto de la transcripción y el audio no se escriben en ningún log (solo `request_id`, motor y duración).
+- Plazo y reintentos configurables en `api/voice/config.py` (`REMOTE_TIMEOUT_S`, `TURN_BUDGET_S`).
+
+## Pruebas (las escribes tú, en `api/tests/voice/test_transcribe.py`, antes del código)
+Una por escenario del spec, con dobles de prueba que registran sus llamadas: consentimiento verdadero/falso, falla del proveedor (excepción y timeout), 429 con `retry-after` corto y largo, silencio y "texto inventado sobre silencio" ("Gracias." de un motor falso nunca llega al resultado), un "no" de 1 s que pasa el filtro, audio de 60 s ⇒ `AUDIO_TOO_LONG` sin llamar al decodificador, bytes basura ⇒ `INVALID_AUDIO`, una sola decodificación, `transcript_confidence` `None`, y una prueba con `ast` que falle si el módulo importa algo fuera de la librería estándar, usa `open(` para escribir o `float` para dinero. Incluye entradas hostiles (audio vacío, tipos no `bytes`, `request_id` vacío).
+
+## Entrega
+Corre `cd C:\Users\sebas\Pruebas\EZPAY\api; $env:PYTHONPATH="."; .venv\Scripts\python.exe -m pytest tests -q` y responde a la sesión padre con: resultado de las pruebas (cuántas pasan y cuántas fallaron antes del código), la lista de archivos tocados, los casos donde tuviste que decidir sin preguntar y cualquier escenario del spec que no pudiste cubrir. No hagas commit: la sesión padre revisa, corre las pruebas y hace el commit. No empieces la Fase 2.
+````
+
 ---
 
-Registro: 2026-10-16 23:24 (hora de guardado; A1 enviada a las 22:46, A2 entre las 22:59 y las 23:05, A3 a las 23:11, A4 a las 23:24) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) en A1 y Claude Opus 5.5 (`claude-opus-5-5`) en A2 y A3, sesión padre · Origen: instrucciones A1, A2 y A3 enviadas al agente Constructor Specs (`0334e8e7`).
+Registro: 2026-10-16 23:36 (hora de guardado; A1 enviada a las 22:46, A2 entre las 22:59 y las 23:05, A3 a las 23:11, A4 a las 23:24, B1 a las 23:36) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) en A1 y Claude Opus 5.5 (`claude-opus-5-5`) en A2 y A3, sesión padre · Origen: instrucciones A1, A2 y A3 enviadas al agente Constructor Specs (`0334e8e7`).
