@@ -109,6 +109,10 @@ Ante una respuesta de error, la web app SHALL decidir por `error.code`, nunca po
 - **WHEN** Python responde `404 SESSION_NOT_FOUND`
 - **THEN** la web app borra el `sessionId` guardado y vuelve a `AWAITING_COMMAND` sin `sessionId`
 
+#### Scenario: Error después de un turno con transcripción
+- **WHEN** un turno falla después de otro que trajo `transcript`
+- **THEN** la pantalla muestra el mensaje del error sin la transcripción anterior
+
 #### Scenario: Código desconocido
 - **WHEN** Python responde un `code` que la web app no conoce
 - **THEN** dice "Algo falló. Intenta de nuevo" y muestra el `code` en letra pequeña
@@ -135,7 +139,11 @@ En `AWAITING_PIN`, la web app SHALL mostrar un teclado numérico con botones gra
 
 #### Scenario: Sin micrófono en el PIN
 - **WHEN** el estado es `AWAITING_PIN`
-- **THEN** el botón de grabar está deshabilitado
+- **THEN** el botón de grabar no está disponible (no se muestra)
+
+> Esperaba un botón deshabilitado; pasó que el dock del micrófono tapaba la última fila del teclado
+> en un teléfono de 390 px; cambio: en `AWAITING_PIN`, `AWAITING_AUTHORIZATION`, `COMPLETED` y
+> `REJECTED` el micrófono no se muestra.
 
 ### Requirement: Elección de destinatario
 En `AWAITING_RECIPIENT_CHOICE`, cada elemento de `options` SHALL mostrarse como un botón grande con su `name`. Tocar un botón envía `POST /api/turns` con `text` igual a su `alias`. La usuaria también puede responder por voz. **Cambio de contrato propuesto** (ML 1 C-6; Pagos `turn-orchestration`).
@@ -152,11 +160,11 @@ En `COMPLETED`, la web app SHALL mostrar un recibo con el destinatario y `receiv
 - **THEN** el recibo muestra "20.000" enviados y "150" de costo
 
 ### Requirement: Pago pendiente
-En `PAYMENT_PENDING` (**cambio de contrato propuesto**, Pagos D-2), la web app SHALL mostrar el envío como "en camino", leer el `say` y, unos 20 s después, enviar **un único** `POST /api/turns` de verificación con el `sessionId` y sin `audio` ni `text`. MUST NOT repetirlo ni hacer polling. Ver la contradicción F-1 de la propuesta con `AUDIO_OR_TEXT_REQUIRED`.
+En `PAYMENT_PENDING` (B-2, ratificado), la web app SHALL mostrar el envío como "en camino" (con el monto y el destinatario cuando llega `payment`), leer el `say` y, unos 20 s después, enviar **un único** `POST /api/turns` de verificación con el `sessionId` y `kind=verify_pending`, sin `audio` ni `text` (decisión D-1b, `x-proposed` en `openapi/contract-b.yaml`; resuelve F-1). MUST NOT repetirlo ni hacer polling.
 
 #### Scenario: Una sola verificación
 - **WHEN** llega un `TurnResponse` en `PAYMENT_PENDING` y pasan 20 s
-- **THEN** sale un único turno de verificación
+- **THEN** sale un único turno de verificación con `kind=verify_pending`
 - **AND** no sale ninguno más aunque la respuesta siga en `PAYMENT_PENDING`
 
 #### Scenario: La usuaria habla antes
