@@ -70,7 +70,8 @@ THANKS = {"gracias", "muchas"}
 COURTESY = (("por", "favor"), ("porfa",), ("porfavor",))
 PREPOSITIONS = {"a", "para"}
 NUMBER_WORDS = set(UNITS) | {"mil", "millon", "millones", "medio"}
-AMOUNT_WORDS = NUMBER_WORDS | {"y", "o", "peso", "pesos", "cop", "de", "$"} | SLANG_WORDS
+AMOUNT_WORDS = (NUMBER_WORDS | {"y", "o", "peso", "pesos", "cop", "de", "$",
+                                "colombiano", "colombianos"} | SLANG_WORDS)
 _NUMERIC = re.compile(r"\$?[0-9][0-9.,]*")
 _WALLET_LIKE = re.compile(r"https?:|://|www\.|@|\$[a-z]")
 _SENTENCE_END = re.compile(r"(?<![0-9])\.|\.(?![0-9])|[?!;:]")
@@ -106,7 +107,16 @@ def _sentences(text: str) -> list[list[str]]:
     t = _WORD_HYPHEN.sub(" ", t)                           # "laura-vecina"; "-20" queda como "#20"
     t = _SPACE_PUNCT.sub(" ", t)
     t = _OTHER.sub("#", t)
-    return [s for s in (_drop(part.split(), COURTESY) for part in t.split("|")) if s]
+    return [_expand_k(s) for s in (_drop(part.split(), COURTESY) for part in t.split("|")) if s]
+
+
+def _expand_k(tokens: list[str]) -> list[str]:
+    """"20k" es como escribe Groq "veinte mil": dígitos seguidos de k son un monto, no jerga."""
+    out = []
+    for t in tokens:
+        m = re.fullmatch(r"(\d{1,3})k", t)
+        out.extend([m.group(1), "mil"] if m else [t])
+    return out
 
 
 def _is_cancel(tokens: list[str]) -> bool:

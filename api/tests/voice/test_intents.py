@@ -103,6 +103,9 @@ D = [
     (28, "Este es el canal de subtítulos en español de la Iglesia de Jesucristo.", UNKNOWN, None, None, OK),
     (29, "Envíale a la hora 30 mil", PAY, "3000000", "la hora", OK),
     (30, "Envíale cincuenta mil a la obra vecina", PAY, "5000000", "la obra vecina", OK),
+    (31, "Envíale 20.000 pesos colombianos a Laura", PAY, "2000000", "laura", OK),
+    (32, "Envíale 20k a Laura", PAY, "2000000", "laura", OK),
+    (33, "Mándale 1.500.000 pesos a Laura", PAY, "150000000", "laura", OK),
 ]
 
 
