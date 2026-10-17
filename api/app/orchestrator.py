@@ -21,7 +21,7 @@ from decision import (
     parse_context,
     say_situation as engine_say_situation,
 )
-from pin import PinValidator
+from pin.pin import PinValidator, default_validator
 from voice.amounts import Amount as VoiceAmount
 from voice.contacts import Kind, load_agenda, resolve_choice, resolve_recipient
 from voice.config import AGENDA_PATH
@@ -74,7 +74,7 @@ class Orchestrator:
         self.clock = clock or UtcClock()
         self.payments = payments
         self.agenda = load_agenda(agenda_path or AGENDA_PATH)
-        self.pin_validator = pin_validator
+        self.pin_validator = pin_validator or default_validator
         self.budget_grant_id: str | None = None
         self.budget_status: str | None = None
         self.history: set[str] = set()  # wallets con pago COMPLETED (D9, R7)
@@ -160,7 +160,7 @@ class Orchestrator:
             clock=self.clock,
             agenda=self.agenda,
         )
-        return self._apply_decision(session, context, transcript, audio_bytes, text, request_id)
+        return self._apply_decision(session, context, client_quote=quote, transcript=transcript, audio_bytes=audio_bytes, text=text, request_id=request_id)
 
     def _voice_of(self, audio_bytes, text) -> tuple[str, float | None]:
         """Regla de ML 2: un comando por texto entra NOT_AVAILABLE; el audio va al verificador."""
@@ -184,7 +184,7 @@ class Orchestrator:
         }
 
     # -------------------------------------------------- decisión y transiciones
-    def _apply_decision(self, session, context, transcript, audio_bytes, text, request_id) -> dict:
+    def _apply_decision(self, session, context, *, client_quote, transcript, audio_bytes, text, request_id) -> dict:
         context_obj = parse_context(context)
         decision = engine_decide(context_obj)
         situation = engine_say_situation(decision, context_obj)
@@ -224,7 +224,7 @@ class Orchestrator:
             session.state = TurnState.AWAITING_PIN
             session.intent = intent
             session.contact = contact
-            session.quote = context["quote"]
+            session.quote = client_quote
             session.voice = {"status": context["voice"]["status"], "score": context["voice"]["score"]}
             session.enrolled = context["enrolled"]
             session.unclear_replies = 0
@@ -234,7 +234,7 @@ class Orchestrator:
             session.state = TurnState.AWAITING_CONFIRMATION
             session.intent = intent
             session.contact = contact
-            session.quote = context["quote"]
+            session.quote = client_quote
             session.voice = {"status": context["voice"]["status"], "score": context["voice"]["score"]}
             session.enrolled = context["enrolled"]
             session.unclear_replies = 0
@@ -318,14 +318,61 @@ class Orchestrator:
         session.voice = None
         session.unclear_replies = 0
 
-    # --------------------------------------------- rebanadas siguientes (R4-R7)
+    # ------------------------------------------------------------- fase de PIN
     def _pin_turn(self, session, audio_bytes, text, request_id) -> dict:
-        # R4 reemplaza esta pasarela por la validación local del PIN con api/pin.
-        if audio_bytes is not None:
-            # el audio en AWAITING_PIN se descarta sin transcribir
-            return turns.response(session.id, TurnState.AWAITING_PIN, self._say(S.PIN_KEYBOARD.value))
-        return turns.response(session.id, TurnState.AWAITING_PIN, self._say(S.PIN_KEYBOARD.value))
+        """El PIN se valida SOLO en Python (componente de ML 2): nunca a Node, nunca a logs.
 
+        El audio en AWAITING_PIN se descarta sin transcribir (spec); el texto es
+        el PIN y entra como `pin` al context, sin tocar la extracción de intención.
+        """
+        if audio_bytes is not None:
+            return turns.response(session.id, TurnState.AWAITING_PIN, self._say(S.PIN_KEYBOARD.value))
+        validator = self.pin_validator or default_validator
+        result = validator.verify(text or "", session.id)
+        context = build_context(
+            phase="PIN",
+            input_text=None,
+            intent=session.intent,
+            resolution=self._stored_resolution(session),
+            voice_status=session.voice["status"] if session.voice else "NOT_AVAILABLE",
+            voice_score=session.voice.get("score") if session.voice else None,
+            enrolled=session.enrolled,
+            has_budget_grant=self._has_active_budget(),
+            quote=session.quote,
+            pending_payment=self._pending_of(session),
+            clock=self.clock,
+            agenda=self.agenda,
+            reply=None,
+            unclear_replies=0,
+            pin_result=result,
+        )
+        context_obj = parse_context(context)
+        decision = engine_decide(context_obj)
+        situation = engine_say_situation(decision, context_obj)
+        if decision.decision is DecisionType.ASK_CONFIRM:
+            session.state = TurnState.AWAITING_CONFIRMATION
+            session.unclear_replies = 0
+            return turns.response(
+                session.id, TurnState.AWAITING_CONFIRMATION,
+                self._say(situation, contact=session.contact, quote=session.quote),
+            )
+        if decision.decision is DecisionType.ASK_PIN:
+            session.state = TurnState.AWAITING_PIN
+            return turns.response(
+                session.id, TurnState.AWAITING_PIN,
+                self._say(situation, remaining=result.remaining),
+            )
+        # REJECT: PIN_ATTEMPTS_EXHAUSTED o PIN_LOCKED; no se paga
+        session.state = TurnState.REJECTED
+        self._clear_pending(session)
+        return turns.response(session.id, TurnState.REJECTED, self._say(situation))
+
+    def _stored_resolution(self, session) -> dict | None:
+        if session.contact is None:
+            return None
+        return {"kind": Kind.RESOLVED.value, "contact": session.contact}
+
+    # --------------------------------------------- rebanadas siguientes (R5-R7)
     def _choice_turn(self, session, audio_bytes, text, request_id) -> dict:
         raise NotImplementedError("R7")
 
