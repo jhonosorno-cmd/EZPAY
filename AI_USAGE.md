@@ -10,6 +10,9 @@ El texto real de los prompts está en [`prompts/`](prompts/).
 
 - Claude Code (modelo Claude Sonnet 5.5): rol Pagos. Escribe los contratos OpenAPI, las pruebas de
   los mocks y la documentación, a partir de `docs/` y `openspec/`.
+- Subagente `general-purpose` de Claude Code: rol Pagos. Escribe los diagramas de flujo de
+  `docs/flujos/` a partir de los specs, los contratos y los PRs abiertos, bajo supervisión de
+  Claude Code.
 
 ## Uso por componente
 
@@ -18,6 +21,8 @@ El texto real de los prompts está en [`prompts/`](prompts/).
 | `openapi/contract-a.yaml`, `openapi/contract-b.yaml`, `openapi/components.yaml` | Pagos | Claude Code | Describir los Contratos A y B (v1 + v1.1) como OpenAPI 3.0.3, con ejemplos por escenario | Pendiente: lectura de Alexander (@jhonosorno-cmd) contra `docs/contratos-*`. Verificado con `npm run lint:openapi` (limpio) y `npm run test:mocks` (en verde) |
 | `openapi/check.test.mjs` | Pagos | Claude Code | Pruebas de aceptación de los mocks escritas desde los contratos, antes del YAML | Pendiente: lectura de Alexander (@jhonosorno-cmd). Se vio fallar primero (sin specs) y luego pasar |
 | `openapi/README.md`, `package.json`, `redocly.yaml`, sección "Mocks de los contratos" del `README.md` | Pagos | Claude Code | Instrucciones de uso de los mocks y configuración del lint | Pendiente: lectura de Alexander (@jhonosorno-cmd). Los comandos documentados se corrieron |
+| `docs/flujos/flujo-actual.md` | Pagos | Claude Code (Claude Sonnet 5.5) y subagente general-purpose | Diagramas Mermaid del flujo actual (`main`) a partir de specs, contratos y mocks. Los 7 bloques se renderizaron con mermaid-cli | Pendiente: lectura de Alexander (@jhonosorno-cmd) |
+| `docs/flujos/flujo-con-prs.md` | Pagos | Claude Code (Claude Sonnet 5.5) y subagente general-purpose | Diagramas Mermaid del flujo con los PRs #2, #4 y #5 mergeados, a partir de specs y de los PRs. Los 7 bloques se renderizaron con mermaid-cli | Pendiente: lectura de Alexander (@jhonosorno-cmd) |
 
 ## Archivos con mínima o ninguna IA
 
