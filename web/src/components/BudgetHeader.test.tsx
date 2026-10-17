@@ -24,6 +24,11 @@ describe("BudgetHeader", () => {
     render(<BudgetHeader budget={{ ...contractExample, status: "PENDING" }} />)
     expect(screen.queryByText("$ 179.850")).toBeNull()
   })
+  it("PENDING con límite 0 es que todavía no hay presupuesto (no que espere la wallet)", () => {
+    const none = { ...contractExample, status: "PENDING" as const, limit: { debitAmount: cop("0") } }
+    render(<BudgetHeader budget={none} />)
+    expect(screen.getByText(/no autorizaste un presupuesto/)).toBeTruthy()
+  })
   it("sin respuesta del backend", () => {
     render(<BudgetHeader budget={null} />)
     expect(screen.getByText(/no autorizaste un presupuesto/)).toBeTruthy()

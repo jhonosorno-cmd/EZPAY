@@ -5,7 +5,8 @@ import { formatAmount, percentLeft } from "../lib/money"
 // Contrato B: limit = { debitAmount, interval? }. Solo ACTIVE muestra montos.
 export function BudgetHeader({ budget }: { budget: Budget | null }) {
   const active = budget?.status === "ACTIVE" ? budget : null
-  const pending = budget?.status === "PENDING"
+  // Sin grant, Python responde PENDING con límite 0 (como el esqueleto de Pagos): eso es "sin presupuesto".
+  const pending = budget?.status === "PENDING" && budget.limit.debitAmount.value !== "0"
   return (
     <header>
       <div className="topbar"><p className="brand">EZPAY</p></div>
