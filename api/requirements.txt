@@ -1,0 +1,6 @@
+# Dependencias aprobadas por Sebastián (2026-10-17) para la Fase 2 de speech-transcription.
+# Solo esto: faster-whisper y sus transitivas directas. Groq va con urllib (librería estándar).
+faster-whisper==1.2.1
+av==19.0.1
+numpy==2.5.4
+ctranslate2==4.8.3
