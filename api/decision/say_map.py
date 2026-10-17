@@ -62,10 +62,9 @@ VOICE_SITUATIONS_NEW = (
 )
 
 # Situaciones NUEVAS que TODAVÍA no existen en voice/phrases.py (PENdientes de Voz).
+# CONFIRM_CHALLENGE y CHALLENGE_RETRY ya están en Voz (17 oct); faltan estas dos.
 PENDING_VOZ_SITUATIONS = frozenset({
-    "CONFIRM_CHALLENGE",
     "CONFIRM_CHALLENGE_OVERRUN",
-    "CHALLENGE_RETRY",
     "CHALLENGE_FAILED",
 })
 

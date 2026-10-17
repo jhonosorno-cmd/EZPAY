@@ -127,9 +127,8 @@ class Catalogos(unittest.TestCase):
         self.assertEqual(same_name, set(Reason.__members__) & same_name)
         self.assertTrue(same_name.issubset(set(VOICE_SITUATIONS_NEW)))
 
-    def test_las_cuatro_del_desafio_estan_marcadas_como_pendientes_de_voz(self):
-        self.assertEqual(PENDING_VOZ_SITUATIONS,
-                         {"CONFIRM_CHALLENGE", "CONFIRM_CHALLENGE_OVERRUN", "CHALLENGE_RETRY", "CHALLENGE_FAILED"})
+    def test_las_del_desafio_que_faltan_en_voz_estan_marcadas_como_pendientes(self):
+        self.assertEqual(PENDING_VOZ_SITUATIONS, {"CONFIRM_CHALLENGE_OVERRUN", "CHALLENGE_FAILED"})
         self.assertTrue(PENDING_VOZ_SITUATIONS.issubset(set(VOICE_SITUATIONS_NEW)))
 
 
