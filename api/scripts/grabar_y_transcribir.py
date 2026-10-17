@@ -93,9 +93,7 @@ def _grabar_hasta_espacio() -> np.ndarray:
     frame.sample_rate = rate_in
     partes = [f.to_ndarray().reshape(-1) for f in resampler.resample(frame)]
     pcm = np.concatenate(partes).astype("float32")
-    pico = float(np.max(np.abs(pcm))) if pcm.size else 0.0
-    if pico >= 0.05:  # solo normaliza si hubo señal real; el silencio se queda callado (filtro)
-        pcm /= pico
+    # Sin normalizar: el navegador tampoco lo hace, y subir el volumen amplifica el ruido de fondo.
     return pcm
 
 

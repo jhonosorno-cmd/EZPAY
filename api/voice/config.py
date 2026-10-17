@@ -20,5 +20,5 @@ GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 GROQ_MODEL = "whisper-large-v3-turbo"
 WHISPER_LOCAL_MODEL = "base"
 SAMPLE_RATE = 16000              # PCM objetivo: float32, 16 kHz, mono (contrato-voz §4)
-SPEECH_RMS_THRESHOLD = 0.01      # RMS mínimo (PCM de -1 a 1) para considerar que hay habla
-SPEECH_MIN_SECONDS = 0.25        # duración menor a la mínima: no hay habla (filtro previo)
+SPEECH_RMS_THRESHOLD = 0.015     # RMS mínimo de un tramo de 20 ms (PCM de -1 a 1); el ruido del cuarto medido llega a 0,009
+SPEECH_MIN_SECONDS = 0.25        # los tramos con energía deben sumar al menos esto; menos: no hay habla (filtro previo)

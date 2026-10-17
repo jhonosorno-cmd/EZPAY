@@ -123,11 +123,15 @@ class EnergySpeechFilter(SpeechFilter):
         self.min_samples = min_samples
 
     def has_speech(self, pcm) -> bool:
-        arr = np.asarray(pcm).reshape(-1)
-        if arr.size < self.min_samples:
+        """Hay habla si los tramos de 20 ms con energía suficiente suman al menos la duración mínima.
+        Un golpe corto (como soltar la tecla) o el ruido de fondo bajo no cuentan."""
+        arr = np.asarray(pcm).reshape(-1).astype("float64")
+        frame = SAMPLE_RATE // 50
+        n = arr.size // frame
+        if n == 0 or arr.size < self.min_samples:
             return False
-        rms = float(np.sqrt(np.mean(np.square(arr.astype("float64")))))
-        return bool(rms >= self.threshold)
+        rms = np.sqrt(np.mean(np.square(arr[: n * frame].reshape(n, frame)), axis=1))
+        return bool(int(np.count_nonzero(rms >= self.threshold)) * frame >= self.min_samples)
 
 
 class GroqRemote(RemoteEngine):
