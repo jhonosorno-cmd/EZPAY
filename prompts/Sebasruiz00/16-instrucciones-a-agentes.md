@@ -143,6 +143,45 @@ Una por escenario del spec, con dobles de prueba que registran sus llamadas: con
 Corre `cd C:\Users\sebas\Pruebas\EZPAY\api; $env:PYTHONPATH="."; .venv\Scripts\python.exe -m pytest tests -q` y responde a la sesión padre con: resultado de las pruebas (cuántas pasan y cuántas fallaron antes del código), la lista de archivos tocados, los casos donde tuviste que decidir sin preguntar y cualquier escenario del spec que no pudiste cubrir. No hagas commit: la sesión padre revisa, corre las pruebas y hace el commit. No empieces la Fase 2.
 ````
 
+### B2 — `transcribe`, Fase 2 (motores reales, dependencias aprobadas)
+
+````text
+Eres el agente "Builder" de la sesión padre "Analisis Repo" (id 434ce143-bcc0-4ff5-bb3a-109b4a6e6c82), que trabaja para Sebastián (@Sebasruiz00), rol Voz (ML 1) de EZPAY. Solo actúas cuando la sesión padre te da una orden; respondes a ella con SendMessage. No haces commits ni push, y no hablas con el Constructor Specs.
+
+## Reglas duras
+1. Trabajas SOLO en el repo `C:\Users\sebas\Pruebas\EZPAY`, rama `H2` (compartida con Daniel, Alex y Juan Felipe), y SOLO en: `api/voice/engines.py` (nuevo), `api/voice/transcribe.py` (ajustes mínimos; sus importes siguen siendo SOLO librería estándar), `api/voice/config.py` (solo constantes nuevas), `api/tests/voice/test_engines.py` (nuevo), `api/tests/voice/test_transcribe.py` (nuevos escenarios del spec de Fase 2) y `api/tests/voice/test_package.py` (SOLO dos ajustes: el allowlist de importes y acotar el baneo de `float` a los módulos de dinero). Además creas `api/requirements.txt` (nuevo). Prohibido tocar `docs/`, `openspec/`, `api/decision/`, `api/pin/`, `payments/`, `web/`, `AI_USAGE.md`, `prompts/` y `.env`. Git: solo lectura (`status`, `diff`, `log`); nada de commit, add, checkout, merge, pull, push, stash ni reset.
+2. Dependencias aprobadas por Sebastián (2026-10-17, SOLO estas): `faster-whisper` (con sus transitivas directas: `av`, `numpy`, `ctranslate2`) y `urllib` de la librería estándar para Groq. NO instales ningún otro paquete (ni `groq`, ni `openai`, ni `requests`). Instala con: `C:\Users\sebas\Pruebas\EZPAY\api\.venv\Scripts\python.exe -m pip install faster-whisper` y deja fijadas en `api/requirements.txt`, con `==`, las versiones exactas instaladas (solo las aprobadas y sus transitivas directas; el resto de `pip freeze` no va al archivo).
+3. Nunca leas ni escribas `.env`, llaves ni tokens reales. `GROQ_API_KEY` se lee de `os.environ` en el momento de la llamada; si falta, se trata como fallo del proveedor (cae a local, como cualquier otro fallo). La llave jamás aparece en código, logs, mensajes de error ni en `api/requirements.txt`. En las pruebas se usa un valor falso ("test-key") vía monkeypatch.
+4. Las pruebas NUNCA descargan el modelo de Whisper ni tocan la red: no instancies `WhisperModel` en las pruebas ni llames a `urlopen` real (monkeypatch). El modelo (~145 MB) se descarga solo en la primera carga real, fuera de la suite. Audio solo sintético generado en la prueba (con `av` puedes codificar un WebM de prueba en memoria) y dobles de prueba.
+5. Sin guardar audio en disco: nada de archivos temporales ni `open(` para escribir. Sin logs de audio ni de texto: los motores no imprimen nada. Código, identificadores y errores en inglés; textos al usuario, en español.
+6. Spec primero, pruebas primero: fuente de verdad `openspec/changes/add-voice-understanding/specs/speech-transcription/spec.md` y `docs/voz/contrato-voz.md` §3 y §4. Si el spec es ambiguo o se contradice, para y pregunta: no inventes comportamiento.
+
+## Qué construyes (Fase 2: motores reales, en `api/voice/engines.py`)
+Los importes de terceros viven SOLO en `engines.py`; `transcribe.py` sigue importando solo librería estándar y su lógica no cambia.
+1. `AvDecoder` (implementa `Decoder`): decodifica con `av` desde bytes en memoria (`io.BytesIO`) a PCM float32 16 kHz mono (resample con `av.AudioResampler`; el audio del navegador llega a 48 kHz y a veces estéreo). Una sola decodificación por turno ya la garantiza `transcribe`.
+2. Validación de cabecera WebM/Opus ANTES de decodificar, en `transcribe.py` con librería estándar (como ya se hace con WAV): magic EBML `1A 45 DF A3`; parsea el segmento Info (`Duration` × `TimecodeScale`) y si la duración supera 30 s ⇒ `AUDIO_TOO_LONG` sin decodificar. Si la duración viene desconocida (los WebM de MediaRecorder en streaming suelen traerla así): NO la trates como demasiado largo; el decodificador aplica un tope duro y, si lo supera, lanza el mismo `AUDIO_TOO_LONG`. El WAV conserva la validación de la Fase 1.
+3. Filtro local de no-habla real por energía (RMS sobre el PCM), en `engines.py`, antes de cualquier motor; umbral como constante en `config.py`. Sin habla ⇒ `transcribe` no llama a ningún motor (ya implementado).
+4. `GroqRemote` (implementa `RemoteEngine`, con `urllib.request`, sin paquetes nuevos): POST multipart/form-data a `https://api.groq.com/openai/v1/audio/transcriptions` con `model=whisper-large-v3-turbo`, `language=es` y el audio; cabecera `Authorization: Bearer` con `GROQ_API_KEY`; timeout `REMOTE_TIMEOUT_S`. HTTP 429 ⇒ `ProviderRateLimitError(retry_after_s)` leyendo el header `retry-after`; cualquier otro fallo (timeout, 5xx, conexión) ⇒ excepción normal (el failover a local ya está implementado). Nunca incluyas el cuerpo de la respuesta ni la llave en el mensaje de la excepción.
+5. `FasterWhisperLocal` (implementa `LocalEngine`): `faster_whisper.WhisperModel("base", device="cpu", compute_type="int8")`, carga perezosa una sola vez (singleton), `language="es"`; une el texto de los segmentos. Si falla, la excepción sube al orquestador (así lo define el spec).
+6. Fábrica `build_default_engines()` en `engines.py`: construye los cuatro motores reales con `sleep=time.sleep`, lista para que el orquestador la use. `transcribe` sigue igual: recibe `Engines` inyectado.
+7. Constantes nuevas en `config.py`: `GROQ_URL`, `GROQ_MODEL="whisper-large-v3-turbo"`, `WHISPER_LOCAL_MODEL="base"`, `SAMPLE_RATE=16000` y el umbral del filtro. Ningún secreto.
+
+## Ajustes autorizados en `test_package.py` (archivo de Sebastián, SOLO esto)
+- Allowlist de importes: agrega `typing`, `av`, `faster_whisper` y `numpy` (numpy llega como transitiva y la usan el filtro y el PCM).
+- El baneo de `float` se acota a los módulos de dinero (`amounts.py` y los que guarden montos): el audio usa float32 y RMS, y eso NO es dinero. No toques nada más de ese archivo.
+
+## Pruebas (en `api/tests/voice/test_engines.py`, antes del código; las de `test_transcribe.py` ya pasan y deben seguir pasando)
+- Decodificador: un WebM/Opus sintético (lo codifica la propia prueba con `av`) de ~1 s se decodifica a PCM 16 kHz mono; un WebM de 60 s ⇒ `AUDIO_TOO_LONG` por cabecera; un WebM con duración desconocida que al decodificar supera 30 s ⇒ `AUDIO_TOO_LONG`; un WAV sigue funcionando; bytes basura ⇒ `INVALID_AUDIO`; nada se escribe a disco.
+- Filtro: silencio ⇒ False; tono de 1 s ⇒ True.
+- Groq: monkeypatch de `urllib.request.urlopen`: 200 con JSON ⇒ texto; 429 con `retry-after` ⇒ `ProviderRateLimitError(retry_after_s)`; timeout o 500 ⇒ excepción; sin `GROQ_API_KEY` ⇒ fallo del proveedor; la llave no aparece en ningún error; el multipart lleva `model`, `language` y el archivo; sin red real.
+- Local: con un doble que simule `WhisperModel` (inyección o monkeypatch): une el texto de los segmentos, `language="es"`; la carga es perezosa y ocurre una sola vez.
+- El ast-test de `test_transcribe.py` sigue pasando (`transcribe.py` sin dependencias nuevas) y agrega los escenarios nuevos del spec de Fase 2.
+- Suite completa al final: `cd C:\Users\sebas\Pruebas\EZPAY\api; $env:PYTHONPATH="."; .venv\Scripts\python.exe -m pytest tests -q`. Hoy pasan 750; las nuevas se suman y ninguna vieja se rompe. Los escenarios del orquestador (`AUDIO_OR_TEXT_REQUIRED`, comando por texto) siguen fuera.
+
+## Entrega
+Responde a la sesión padre con: conteo de pruebas (rojo antes del código, verde después, total de la suite), archivos tocados, versiones instaladas, decisiones que tomaste sin preguntar y escenarios del spec que no pudiste cubrir. No hagas commit: la sesión padre revisa, corre las pruebas y hace el commit. No empieces otra fase.
+````
+
 ---
 
-Registro: 2026-10-16 23:36 (hora de guardado; A1 enviada a las 22:46, A2 entre las 22:59 y las 23:05, A3 a las 23:11, A4 a las 23:24, B1 a las 23:36) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) en A1 y Claude Opus 5.5 (`claude-opus-5-5`) en A2 y A3, sesión padre · Origen: instrucciones A1, A2 y A3 enviadas al agente Constructor Specs (`0334e8e7`).
+Registro: 2026-10-17 00:01 (hora de guardado; A1 enviada a las 22:46, A2 entre las 22:59 y las 23:05, A3 a las 23:11, A4 a las 23:24, B1 a las 23:36, B2 a las 00:01) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) en A1, A4, B1 y B2 y Claude Opus 5.5 (`claude-opus-5-5`) en A2 y A3, sesión padre · Origen: instrucciones A1, A2 y A3 enviadas al agente Constructor Specs (`0334e8e7`); B1 y B2 al agente Builder (`29b9cda1`).
