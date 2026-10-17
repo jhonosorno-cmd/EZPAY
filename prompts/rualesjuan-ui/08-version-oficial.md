@@ -28,5 +28,7 @@
 
 ## Revisión humana
 
-- Pendiente: OK de Alexander (@jhonosorno-cmd) a que su orquestador quede reemplazado por el
+- Alexander (@jhonosorno-cmd) está enterado y de acuerdo con que su orquestador quede reemplazado por el
   integrado.
+
+> alexander esta enterado de todo HACER EL MERGE
