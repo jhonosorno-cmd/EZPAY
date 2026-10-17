@@ -24,6 +24,7 @@ tags:
   - name: enrollment
   - name: budget
   - name: turns
+  - name: contacts
 paths:
   /api/enrollment:
     post:
@@ -300,6 +301,94 @@ paths:
                   value: { error: { code: SESSION_NOT_FOUND, message: La sesión no existe } }
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/contacts:
+    get:
+      tags: [contacts]
+      operationId: listContacts
+      summary: The user's agenda (the only wallets a voice command can pay, SEG-4)
+      x-proposed: true
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Contacts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [contacts]
+                properties:
+                  contacts:
+                    type: array
+                    items: { $ref: '#/components/schemas/Contact' }
+    post:
+      tags: [contacts]
+      operationId: addContact
+      summary: Add a contact after checking its Open Payments wallet address
+      description: |
+        Python fetches the wallet address (public Open Payments GET) and accepts it only if it exists
+        and uses the demo currency (ASSET_CODE / ASSET_SCALE). Accepts `https://…` or a payment
+        pointer (`$host/path`). The user's own wallet is rejected.
+      x-proposed: true
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, walletAddress]
+              properties:
+                name: { type: string, example: Laura }
+                walletAddress: { type: string, example: https://ilp.interledger-test.dev/laura }
+      responses:
+        '201':
+          description: Contact added.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Contact' }
+        '400':
+          description: Invalid name or wallet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
+              examples:
+                invalid-wallet:
+                  value: { error: { code: INVALID_WALLET, message: No pude encontrar esa billetera } }
+                invalid-contact:
+                  value: { error: { code: INVALID_CONTACT, message: El nombre debe tener solo letras } }
+        '409':
+          description: Same name or same wallet already in the agenda.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
+              examples:
+                contact-exists:
+                  value: { error: { code: CONTACT_EXISTS, message: Ya tienes un contacto con ese nombre } }
+  /api/contacts/{alias}:
+    delete:
+      tags: [contacts]
+      operationId: deleteContact
+      summary: Remove a contact from the agenda
+      x-proposed: true
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+        - name: alias
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '204':
+          description: Contact removed.
+        '404':
+          description: Unknown alias.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorBody' }
+              examples:
+                contact-not-found:
+                  value: { error: { code: CONTACT_NOT_FOUND, message: Ese contacto no existe } }
 components:
   parameters:
     RequestId:
@@ -342,6 +431,11 @@ components:
         - INVALID_AMOUNT
         - UPSTREAM_ERROR
         - INTERNAL_ERROR
+        - INVALID_REQUEST
+        - INVALID_WALLET
+        - INVALID_CONTACT
+        - CONTACT_EXISTS
+        - CONTACT_NOT_FOUND
     ErrorBody:
       type: object
       required: [error]
@@ -352,6 +446,16 @@ components:
           properties:
             code: { $ref: '#/components/schemas/ErrorCode' }
             message: { type: string }
+    Contact:
+      type: object
+      x-proposed: true
+      required: [alias, name, walletAddress]
+      properties:
+        alias: { type: string, example: laura }
+        name: { type: string, example: Laura }
+        walletAddress: { type: string, example: https://ilp.interledger-test.dev/laura }
+        publicName: { type: string, nullable: true }
+        assetCode: { type: string }
     Budget:
       type: object
       required: [status, limit, spent, remaining]
