@@ -235,9 +235,17 @@ def create_app(
             if audio is not None or text or not sessionId:
                 return _error(400, "AUDIO_OR_TEXT_REQUIRED", "Envía audio o texto, no ambos ni ninguno")
             session = store.get(sessionId)
-            session.state = TurnState.PAYMENT_PENDING
-            request.state.turn_state = TurnState.PAYMENT_PENDING.value
-            return turn_logic.response(session.id, TurnState.PAYMENT_PENDING, turn_logic.SAY_PENDING)
+            try:
+                result = orchestrator.verify_pending(session, request_id=getattr(request.state, "request_id", None))
+            except UpstreamUnavailable:
+                return _error(500, "INTERNAL_ERROR", "Error interno")
+            except PaymentsError as exc:
+                orchestrator.log_node_defect(exc, getattr(request.state, "request_id", None))
+                return _error(500, "INTERNAL_ERROR", "Error interno")
+            except Exception:  # nada del request en la respuesta ni en los logs
+                return _error(500, "INTERNAL_ERROR", "Error interno")
+            request.state.turn_state = result["state"]
+            return result
 
         if (audio is None) == (not text):
             return _error(400, "AUDIO_OR_TEXT_REQUIRED", "Envía audio o texto, no ambos ni ninguno")

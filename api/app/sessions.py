@@ -21,6 +21,7 @@ class Session:
         self.state = TurnState.AWAITING_COMMAND
         self.pending_authorization: str | None = None  # "budget" | "one_off"
         self.grant_id: str | None = None  # el grant esperando callback; NUNCA tokens
+        self.one_off_grant_id: str | None = None  # el puntual a cancelar cuando corresponda
         self.intent: dict | None = None  # intención pendiente entre turnos
         self.contact: dict | None = None  # contacto resuelto (alias, nombre, wallet)
         self.quote: dict | None = None  # quote del cliente entre turnos

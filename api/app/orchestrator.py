@@ -26,9 +26,9 @@ from voice.amounts import Amount as VoiceAmount
 from voice.contacts import Kind, load_agenda, resolve_choice, resolve_recipient
 from voice.config import AGENDA_PATH
 from voice.phrases import S, say as voice_say
-from voice.replies import classify_reply
+from voice.replies import Reply, classify_reply
 
-from payments_client import PaymentsError, UpstreamUnavailable
+from payments_client import PaymentPending, PaymentsError, UpstreamUnavailable
 
 from .config import asset_code, asset_scale
 from .engine_context import build_context, intent_dict, resolution_dict
@@ -231,8 +231,280 @@ class Orchestrator:
             self.budget_status = "ACTIVE"
             session.state = TurnState.AWAITING_COMMAND
             return turns.response(session.id, TurnState.AWAITING_COMMAND, self._say(S.AUTH_APPROVED.value))
-        # kind == "one_off": el callback retoma la intención pendiente y paga (R6)
-        raise NotImplementedError("R6")
+        if kind == "one_off":
+            return self._continue_one_off(session, request_id)
+        return turns.response(session.id, TurnState.AWAITING_COMMAND, self._say(S.AUTH_APPROVED.value))
+
+    # ------------------------------------------------------------- fase de pago
+    def _confirmation_turn(self, session, audio_bytes, text, request_id) -> dict:
+        """D4: la voz del "sí" no se verifica; el context conserva la del comando."""
+        reply = classify_reply(text)
+        context = build_context(
+            phase="CONFIRMATION",
+            input_text=text,
+            intent=session.intent,
+            resolution=self._stored_resolution(session),
+            voice_status=session.voice["status"] if session.voice else "NOT_AVAILABLE",
+            voice_score=session.voice.get("score") if session.voice else None,
+            enrolled=session.enrolled,
+            has_budget_grant=self._has_active_budget(),
+            quote=session.quote,
+            pending_payment=self._pending_of(session),
+            clock=self.clock,
+            agenda=self.agenda,
+            reply=reply.value,
+            unclear_replies=session.unclear_replies,
+        )
+        context_obj = parse_context(context)
+        decision = engine_decide(context_obj)
+        situation = engine_say_situation(decision, context_obj)
+        if decision.decision is DecisionType.PAY:
+            return self._pay(session, transcript=text or None, request_id=request_id)
+        if decision.decision is DecisionType.REQUIRE_AUTH:
+            return self._require_one_off(session, context["quote"]["debitAmount"], text or None, request_id)
+        if decision.decision is DecisionType.ASK_CONFIRM:
+            # repregunta una vez (SEG-2): el contador vive en la sesión
+            session.state = TurnState.AWAITING_CONFIRMATION
+            session.unclear_replies = session.unclear_replies + 1
+            return turns.response(
+                session.id, TurnState.AWAITING_CONFIRMATION,
+                self._say(situation, contact=session.contact, quote=session.quote),
+                transcript=text or None,
+            )
+        # REJECT: USER_DECLINED o REPLY_UNCLEAR_REJECTED
+        session.state = TurnState.REJECTED
+        self._clear_pending(session)
+        self._cancel_one_off_silent(session, request_id)
+        return turns.response(session.id, TurnState.REJECTED, self._say(situation), transcript=text or None)
+
+    def _require_one_off(self, session, debit_amount, transcript, request_id) -> dict:
+        """El grant puntual del exceso: R1/<instante de la solicitud en UTC>/P1W."""
+        grant = self._request_one_off(session, debit_amount, request_id)
+        session.state = TurnState.AWAITING_AUTHORIZATION
+        return turns.response(
+            session.id, TurnState.AWAITING_AUTHORIZATION,
+            self._say(S.AUTH_REDIRECT.value),
+            transcript=transcript,
+            interact_url=grant["interactUrl"],
+        )
+
+    def _request_one_off(self, session, debit_amount: dict, request_id: str | None) -> dict:
+        from payments_client import one_off_interval
+
+        interval = one_off_interval(self.clock.now())
+        grant = self._node_call(
+            "create_grant",
+            lambda: self.payments.create_grant(
+                DEMO_USER_ID,
+                _wallet_address(),
+                f"{FRONTEND_ORIGIN}/grant-callback",
+                debit_amount["value"],
+                interval=interval,
+                request_id=request_id,
+            ),
+            request_id,
+        )
+        session.pending_authorization = "one_off"
+        session.grant_id = grant["grantId"]
+        session.one_off_grant_id = grant["grantId"]
+        return grant
+
+    def _continue_one_off(self, session, request_id) -> dict:
+        """El callback del grant puntual: recotiza con su grantId y paga si la quote entra."""
+        intent = session.intent
+        contact = session.contact
+        try:
+            quote = self._node_call(
+                "create_quote",
+                lambda: self.payments.create_quote(
+                    session.grant_id,
+                    contact["walletAddress"],
+                    intent["amount"]["value"],
+                    request_id=request_id,
+                ),
+                request_id,
+            )
+        except PaymentsError as exc:
+            self.log_node_defect(exc, request_id)
+            raise TurnError(500, "INTERNAL_ERROR", "Error interno") from None
+        session.quote = quote
+        if quote["exceedsRemaining"]:
+            # el débito cambió: cancela el puntual y pide otro (el say no menciona costos)
+            self._cancel_one_off_silent(session, request_id)
+            grant = self._request_one_off(session, quote["debitAmount"], request_id)
+            session.state = TurnState.AWAITING_AUTHORIZATION
+            return turns.response(
+                session.id, TurnState.AWAITING_AUTHORIZATION,
+                self._say(S.AUTH_REDIRECT.value),
+                interact_url=grant["interactUrl"],
+            )
+        session.idempotency_key = None  # quote nueva: clave nueva
+        return self._pay(session, transcript=None, request_id=request_id)
+
+    def _pay(self, session, *, transcript=None, request_id=None) -> dict:
+        """Paga la quote de la sesión: una Idempotency-Key por quote, reintentos con la misma."""
+        quote = session.quote
+        if not quote:
+            raise TurnError(500, "INTERNAL_ERROR", "Error interno")
+        key = session.idempotency_key or str(uuid.uuid4())
+        session.idempotency_key = key
+        try:
+            outcome = self._node_call(
+                "create_payment",
+                lambda: self.payments.create_payment(quote["quoteId"], key, request_id=request_id),
+                request_id,
+            )
+        except UpstreamUnavailable:
+            raise
+        except PaymentsError as exc:
+            if exc.code in ("LIMIT_EXCEEDED", "GRANT_INVALID"):
+                # reautorización puntual (payments-client): el turno pasa a AWAITING_AUTHORIZATION
+                return self._require_one_off(session, quote["debitAmount"], transcript, request_id)
+            self.log_node_defect(exc, request_id)
+            raise TurnError(500, "INTERNAL_ERROR", "Error interno") from None
+        return self._settle_payment(session, outcome, transcript=transcript, request_id=request_id)
+
+    def _settle_payment(self, session, outcome, *, transcript=None, request_id=None) -> dict:
+        if isinstance(outcome, PaymentPending):
+            # resultado incierto sin paymentId: PAYMENT_PENDING, nunca rechazo
+            session.pending_payment = {
+                "recipient": session.contact["walletAddress"] if session.contact else "",
+                "createdAt": self.clock.now().isoformat(),
+                "status": "PROCESSING",
+                "paymentId": None,
+                "quoteId": session.quote["quoteId"],
+                "idempotencyKey": session.idempotency_key,
+            }
+            session.state = TurnState.PAYMENT_PENDING
+            return turns.response(
+                session.id, TurnState.PAYMENT_PENDING, self._say(S.PAYMENT_PENDING.value), transcript=transcript,
+            )
+        session.pending_payment = {
+            "recipient": session.contact["walletAddress"] if session.contact else "",
+            "createdAt": self.clock.now().isoformat(),
+            "status": "PROCESSING",
+            "paymentId": outcome["paymentId"],
+            "quoteId": session.quote["quoteId"],
+            "idempotencyKey": session.idempotency_key,
+            "debitAmount": outcome["debitAmount"],
+        }
+        session.payment_id = outcome["paymentId"]
+        if outcome["status"] == "FAILED":
+            return self._payment_rejected(session)
+        if outcome["status"] == "COMPLETED":
+            return self._payment_completed(session, outcome, request_id=request_id)
+        final = self._node_call(
+            "wait_for_payment",
+            lambda: self.payments.wait_for_payment(outcome["paymentId"], request_id=request_id),
+            request_id,
+        )
+        return self._resolve_final(session, final, outcome, transcript=transcript, request_id=request_id)
+
+    def _resolve_final(self, session, final, created, *, transcript=None, request_id=None) -> dict:
+        if isinstance(final, PaymentPending):
+            session.state = TurnState.PAYMENT_PENDING
+            return turns.response(
+                session.id, TurnState.PAYMENT_PENDING,
+                self._say(S.PAYMENT_PENDING.value),
+                transcript=transcript,
+                payment=self._payment_object(session, created["paymentId"], created["debitAmount"]),
+            )
+        if final["status"] == "COMPLETED":
+            return self._payment_completed(session, created, request_id=request_id)
+        return self._payment_rejected(session)
+
+    def _payment_completed(self, session, created, *, request_id=None) -> dict:
+        session.state = TurnState.COMPLETED
+        wallet = session.contact["walletAddress"] if session.contact else None
+        if wallet:
+            self.history.add(wallet)  # historial de pagos por destinatario (D9, R7)
+        session.pending_payment = None
+        self._cancel_one_off_silent(session, request_id)
+        receive = session.quote["receiveAmount"]
+        debit = created["debitAmount"]
+        return turns.response(
+            session.id, TurnState.COMPLETED,
+            voice_say(S.COMPLETED, amount=self._voice_amount(receive), name=session.contact["name"],
+                      debit=self._voice_amount(debit) if debit else None),
+            payment=self._payment_object(session, created["paymentId"], debit),
+        )
+
+    def _payment_rejected(self, session) -> dict:
+        """Pago FAILED (marca de Open Payments): REJECTED. Sin plantilla de fallo en el
+        catálogo de Voz (D-n 2 del reporte): fail-closed con la plantilla más próxima."""
+        session.state = TurnState.REJECTED
+        session.pending_payment = None
+        return turns.response(session.id, TurnState.REJECTED, self._say(S.REPLY_UNCLEAR_REJECTED.value))
+
+    def _payment_object(self, session, payment_id: str, debit_amount: dict | None) -> dict:
+        return {
+            "paymentId": payment_id,
+            "receiver": session.contact["walletAddress"] if session.contact else "",
+            "debitAmount": debit_amount or session.quote["debitAmount"],
+            "receiveAmount": session.quote["receiveAmount"],
+        }
+
+    def _cancel_one_off_silent(self, session, request_id: str | None) -> None:
+        """Cancelar el grant puntual no bloquea el turno: se registra y sigue."""
+        grant_id = session.one_off_grant_id
+        if not grant_id:
+            return
+        session.one_off_grant_id = None
+        try:
+            self._node_call(
+                "cancel_grant",
+                lambda: self.payments.cancel_grant(grant_id, request_id=request_id),
+                request_id,
+            )
+        except (UpstreamUnavailable, PaymentsError) as exc:
+            code = exc.code if isinstance(exc, PaymentsError) else "UPSTREAM_UNAVAILABLE"
+            _logger.info(json.dumps({
+                "event": "orchestrator_error", "op": "cancel_grant", "code": code, "requestId": request_id,
+            }, ensure_ascii=False))
+
+    # ------------------------------------------------------ verificación pendiente
+    def verify_pending(self, session, request_id: str | None) -> dict:
+        """El turno automático de B-2: consulta el pago pendiente de la sesión.
+
+        COMPLETED → lo informa; FAILED → informa el fallo; PROCESSING → sigue
+        pendiente. Sin paymentId reintenta POST /payments con la MISMA clave.
+        """
+        pending = session.pending_payment
+        if not pending:
+            session.state = TurnState.PAYMENT_PENDING
+            return turns.response(session.id, TurnState.PAYMENT_PENDING, self._say(S.PAYMENT_PENDING.value))
+        payment_id = pending.get("paymentId")
+        if payment_id:
+            final = self._node_call(
+                "get_payment",
+                lambda: self.payments.get_payment(payment_id, request_id=request_id),
+                request_id,
+            )
+            created = {"paymentId": payment_id, "debitAmount": pending.get("debitAmount")}
+            if final["status"] == "COMPLETED":
+                return self._payment_completed(session, created, request_id=request_id)
+            if final["status"] == "FAILED":
+                return self._payment_rejected(session)
+            session.state = TurnState.PAYMENT_PENDING
+            return turns.response(
+                session.id, TurnState.PAYMENT_PENDING,
+                self._say(S.PAYMENT_PENDING.value),
+                payment=self._payment_object(session, payment_id, pending.get("debitAmount")),
+            )
+        # reintentos agotados sin 201: la misma clave y la misma quote
+        key = pending["idempotencyKey"]
+        try:
+            outcome = self._node_call(
+                "create_payment",
+                lambda: self.payments.create_payment(pending["quoteId"], key, request_id=request_id),
+                request_id,
+            )
+        except UpstreamUnavailable:
+            raise
+        except PaymentsError as exc:
+            self.log_node_defect(exc, request_id)
+            raise TurnError(500, "INTERNAL_ERROR", "Error interno") from None
+        return self._settle_payment(session, outcome, transcript=None, request_id=request_id)
 
     def _pending_of(self, session) -> dict | None:
         if not session.pending_payment:
@@ -306,20 +578,7 @@ class Orchestrator:
 
         if decision.decision is DecisionType.REQUIRE_AUTH:
             if decision.reason.value == "NO_BUDGET_GRANT":
-                grant = self._node_call(
-                    "create_grant",
-                    lambda: self.payments.create_grant(
-                        DEMO_USER_ID,
-                        _wallet_address(),
-                        f"{FRONTEND_ORIGIN}/grant-callback",
-                        intent["amount"]["value"],
-                        interval=None,
-                        request_id=request_id,
-                    ),
-                    request_id,
-                )
-                self.budget_grant_id = grant["grantId"]
-                self.budget_status = "PENDING"
+                grant = self.create_budget_grant(intent["amount"]["value"], None, request_id)
                 session.grant_id = grant["grantId"]
                 session.pending_authorization = "budget"
                 session.intent = intent
@@ -331,10 +590,12 @@ class Orchestrator:
                     transcript=transcript,
                     interact_url=grant["interactUrl"],
                 )
-            # CONFIRMED_NEEDS_WALLET_AUTH: grant puntual (R6)
-            raise TurnError(500, "INTERNAL_ERROR", "Error interno")
+            # CONFIRMED_NEEDS_WALLET_AUTH: grant puntual del exceso (R6)
+            return self._require_one_off(session, context["quote"]["debitAmount"], transcript, request_id)
 
-        # PAY: rebanada R6
+        if decision.decision is DecisionType.PAY:
+            return self._pay(session, transcript=transcript, request_id=request_id)
+
         raise TurnError(500, "INTERNAL_ERROR", "Error interno")
 
     # ------------------------------------------------------------------- say
@@ -432,9 +693,4 @@ class Orchestrator:
             return None
         return {"kind": Kind.RESOLVED.value, "contact": session.contact}
 
-    # --------------------------------------------- rebanadas siguientes (R5-R7)
-    def _choice_turn(self, session, audio_bytes, text, request_id) -> dict:
-        raise NotImplementedError("R7")
-
-    def _confirmation_turn(self, session, audio_bytes, text, request_id) -> dict:
-        raise NotImplementedError("R6")
+    # rebanadas siguientes: R7 (elección de destinatario y pago pendiente)
