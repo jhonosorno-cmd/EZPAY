@@ -4,6 +4,31 @@ Material de referencia de las capabilities `decision-engine`, `pin-validation`, 
 
 ## Trazabilidad
 
+### decision-engine
+| Requisito | Origen |
+| --- | --- |
+| Función pura y determinística | D1; `turn-orchestration` "Motor como función pura"; SEG-3 |
+| La Decision incluye un `reason` | Decisión de Daniel (ML 2, 2026-10-16); `turn-orchestration` "Frases de `say` de plantillas, nunca del LLM"; SEG-3 (el motor no genera texto) |
+| Contexto de entrada (`context`) | `turn-orchestration` (quote, `pendingPayment`, `previouslyPaid`, puntajes de confianza, voz); contrato-voz (`Intent`, `Resolution`, `Reply`); Contratos v1 (`Amount`, CONV-1) — decidido 2026-10-16 con ML 2, ML 1 y Pagos |
+| Decisión por tabla ordenada | D2; SEG-3 |
+| Regla 1 `CANCEL → REJECT` | catálogo de `say` (`CANCELLED` → `REJECTED`) |
+| Regla 2 intención inválida → `REASK` (reason derivado por prioridad) | SEG-3; SEG-4; `intent-extraction`; decisión con ML 1 (2026-10-16) |
+| Regla 2b cortes de confianza → `REASK` | `docs/decisiones.md` 3b (puntaje por pipeline, 16 oct); `turn-orchestration` "Puntajes de confianza en el contexto"; decisión con ML 1 (2026-10-16) |
+| Reglas 3–4 agenda (`NOT_FOUND`, `CHOICE`) | SEG-4 |
+| Regla 5 sin grant → `REQUIRE_AUTH` | SEG-1; `turn-orchestration` "Sin grant de presupuesto" (allí llamada "regla 4 de la tabla de ML 2"; en esta tabla es la 5) |
+| Regla 6 pago pendiente | `turn-orchestration` "Decisión sobre el pago pendiente" (ventana decidida: 120 s, 2026-10-16) |
+| Regla 6b aviso post-ventana → `PENDING_PAYMENT_UNCONFIRMED` | Decisión de ML 2 (2026-10-16, opción A); `turn-orchestration` "Pasado el tope con un sí claro"; falta comunicarlo a Pagos |
+| `PAYMENT_PENDING` visible con frase "Tu envío está en camino…" y verificación silenciosa (~20 s) | **[DECIDIDO 2026-10-16, con Frontend: PAYMENT_PENDING visible, PR #2]**; B-2 ratificado; revierte la opción A |
+| Cada `reason` se asocia a una situación del catálogo único de Voz (`api/voice/phrases.py`) | Decisión de Daniel (2026-10-16): conflictos 2 y 3 de `docs/flujos/flujo-con-prs.md` §8; B-6 ratificado; `turn-orchestration` "Frases de `say` de plantillas, nunca del LLM" |
+| Regla 7 voz no verificada → `ASK_PIN` | SEG-6; D3; `turn-orchestration` "Comando por texto…" y "Usuario no enrolado" |
+| Regla 8 monto alto o destinatario nuevo → `ASK_PIN` | SEG-6; D9; `turn-orchestration` "Historial de pagos por destinatario" |
+| Regla 9 resto → `ASK_CONFIRM` | SEG-2; SEG-5 y SEG-6 (el exceso no pide PIN por monto) |
+| Fase PIN | SEG-6 (tres fallos → `REJECTED`); SEG-2 (el PIN se suma al "sí"); D5; capability `pin-validation` |
+| Fase CONFIRMATION | SEG-2; SEG-5; D4 |
+| Fase CONFIRMATION con desafío de voz (`confirmation`, reasons y situaciones nuevos) | **[DECIDIDO 2026-10-17, presencial]**: propuesta aprobada por los cuatro, artifact `h2-ml2-speaker-verification/propuesta-confirmacion-con-desafio`; evidencia X-4 (1 de 3 reproducciones pasó como `VERIFIED`); cambia SEG-2 y D4 |
+| El motor no obedece al LLM | SEG-3 |
+| Montos comparados como enteros | CONV-1; Contratos v1 "Montos" |
+
 ### pin-validation
 | Requisito | Origen |
 | --- | --- |
@@ -17,45 +42,412 @@ Material de referencia de las capabilities `decision-engine`, `pin-validation`, 
 | Persistencia del estado global (`EZPAY_PIN_DATA_DIR`, defecto `api/.data/pin/`, junto a la huella de voz) | Decisión de Daniel (2026-10-17) **[DECIDIDO]**; PRIV-1/PRIV-4 (nunca el PIN ni el hash en el archivo) |
 | El motor recibe el resultado y no valida el PIN | D1, D5; `turn-orchestration` "Motor como función pura" |
 
+### speaker-verification
+| Requisito | Origen |
+| --- | --- |
+| Funciones Python en el backend, sin servicio aparte | Decisión de ML 2 (2026-10-16); `docs/decisiones.md` 16 oct |
+| `verify(pcm, user) -> {status, score}` = `context.voice` del motor | `decision-engine` "El contexto de entrada"; `turn-orchestration` "Usuario no enrolado" |
+| Solo se verifica la voz del comando (D4) y la respuesta al desafío (modo `CHALLENGE`) | `turn-orchestration` "Solo se verifica la voz del comando"; propuesta "Confirmación con desafío de voz" **[DECIDIDO 2026-10-17, presencial]** (evidencia X-4); experimentos ML 2, 15 oct (clips < ~3 s se solapan) |
+| Umbral 0.45 (confirmado en vivo) | D6; experimentos ML 2, 15 y 17 oct (17 oct: 0 FA/0 FR a 0.45; impostor máx. 0.405, genuino mín. 0.508; a 0.55 hubo 3 FR); recalibración en H3 |
+| Tope de 30 s: no se recorta, falla cerrado (`NOT_AVAILABLE`) | B-3 ratificado (`AUDIO_TOO_LONG`; `speech-transcription` lee la duración de la cabecera); `docs/voz/contrato-voz.md` §4 (nota de RAM); experimentos ML 2, 15 oct |
+| Duración mínima de verificación `minVerifySeconds` = 2,0 s | **[DECIDIDO 2026-10-17]**; experimentos ML 2, 17 oct, 3 personas (1,0 s ⇒ 11 FR, 1,5 s ⇒ 4, 2,0–3,0 s ⇒ 0 FA/0 FR) |
+| Recorte de silencios fijado (`trim_silence`: ventanas de 320 muestras = 20 ms, margen 0,25 s) | Experimentos ML 2, 15 oct (calibración del 0.45); cambiarlos exige recalibrar; X-6 (17 oct): el VAD de SpeechBrain no mejoró — se mantiene |
+| Comparación en el borde (`score >= umbral` ⇒ `VERIFIED`) | Decisión de Daniel (2026-10-16) |
+| Carga del modelo al arrancar; fallo de carga ⇒ `NOT_AVAILABLE` | Decisión de Daniel (2026-10-16); PRIV-4 (aviso en log sin datos biométricos) |
+| Una verificación a la vez (candado) | Experimentos ML 2, 15 oct (4 × 30 s en paralelo: 1,85 GB) |
+| `score: null` con `NOT_AVAILABLE` | Decisión de Daniel (2026-10-16); `decision-engine` "El contexto de entrada" |
+| Entrada PCM float32 16 kHz mono | `docs/voz/contrato-voz.md` §4 |
+| Usuario sin huella, audio corto, > 30 s, error interno o modelo sin cargar ⇒ `NOT_AVAILABLE` con `score: null` | `turn-orchestration` "Usuario no enrolado"; SEG-6; D3 (falla cerrada) |
+| Privacidad: solo embeddings, sin audio ni puntajes en logs | PRIV-1, PRIV-4; `voice-privacy` |
+| Borrado de la huella por script (retira también el consentimiento externo — opción B, 2026-10-16) | PRIV-3; `voice-privacy`; `voice-enrollment` |
+| Anti-spoofing fuera de alcance; `highAmountThreshold` = 100.000 COP; contra la grabación, el desafío de voz en la confirmación | X-4; experimentos ML 2, 17 oct, 3 personas (1 de 3 reproducciones pasó como `VERIFIED`); propuesta "Confirmación con desafío de voz" **[DECIDIDO 2026-10-17, presencial]** |
+| Carga sin internet y presupuesto de latencia (< 1 s con ≤ 10 s) | x0_entorno (16 oct; **[DECIDIDO 2026-10-17]**): carga 0,3 s con 383 MB; latencia 0,16/0,28/0,47 s con 3/5/10 s |
+
+### voice-enrollment
+| Requisito | Origen |
+| --- | --- |
+| `POST /enrollment` (multipart `audio` ×3, `consent=true` → `201 {enrolled: true}` · `400 CONSENT_REQUIRED`) | `docs/contratos-http-v1.md` (Contrato B) |
+| Errores `SAMPLES_REQUIRED`, `INVALID_AUDIO`, `INCONSISTENT_SAMPLES` y `GET /enrollment` | B-5 (`docs/contratos-cambios-propuestos-v1.1.md`); D8 |
+| UI: consentimiento, 3 muestras de 3–15 s, revisar/repetir cada muestra, resultado por `error.code` | `openspec/changes/add-voice-web-client/specs/enrollment-ui/spec.md`; PR #2 de Frontend |
+| Consentimiento antes de procesar nada | PRIV-2 (Ley 1581 de 2012); `voice-privacy` |
+| Corte de consistencia entre pares (por defecto **0.45**, configurable) | Experimentos ML 2, 15 y 17 oct (17 oct: peor par por persona 0.518/0.686/0.749 — se mantiene); recalibración en H3 |
+| Re-enrolar sobrescribe (201), atómico | B-5; decisión de Daniel (2026-10-16) |
+| Consentimiento único: huella + audio de las órdenes a proveedor externo (`consentExterno`) | Decisión de Daniel (2026-10-16, opción B); `speech-transcription` "Audio a un proveedor externo solo con consentimiento"; textos: `verificacion-ml2/textos-enrolamiento.md` |
+| Persistencia de la huella (archivo local fuera de git: `*.npy`, `*.db`; `userId` fijo del MVP) | Decisión de Daniel (2026-10-16); PRIV-1 |
+| Orden de los errores | Decisión de Daniel (2026-10-16); PRIV-2 (nunca se procesa audio sin consentimiento) |
+| Duración de la muestra medida tras recortar silencios | Experimentos ML 2, 15 oct; mismo criterio que `speaker-verification` |
+| Muestra > 15 s ⇒ `INVALID_AUDIO` | B-3 (nunca llegaría > 30 s); `enrollment-ui` (3–15 s) |
+| Specs de H2 dentro del cambio `add-decision-engine` | `docs/decisiones.md` «Pendientes» (ML 2 crea `openspec/changes/add-decision-engine/`) |
+| Solo embeddings, sin audio ni logs con datos biométricos | PRIV-1, PRIV-4; `voice-privacy` |
+| Huella = promedio de los 3 embeddings (L2-normalizado) — **[DECIDIDO 2026-10-17]** (X-3: estrategia A) | Experimentos ML 2, 17 oct, 3 personas (promedio: genuino mín. 0.508, impostor máx. 0.405, margen +0.104, 0 FA/0 FR a 0.45; máximo: 1 falso aceptado) |
+| Audio PCM float32 16 kHz mono | `docs/voz/contrato-voz.md` §4 |
+| Flujo completo de registro | `docs/flujos/flujo-con-prs.md`, diagramas 2 y 6 |
+
 ## Detalle de `decision-engine`
 
 #### El motor es una función pura y determinística
 
-El motor SHALL exponerse como función pura `decide(context) -> Decision`, con `Decision = {decision, reason}`, sin HTTP, sin Node y sin reloj ni aleatoriedad propios (la hora llega en `context.now`). El mismo `context` MUST producir siempre la misma `Decision`. El mapeo a `TurnState` lo hace el orquestador, no el motor.
+El motor SHALL exponerse como función pura `decide(context) -> Decision`, sin HTTP, sin acceso a
+Node, sin reloj ni aleatoriedad propios: la hora llega en `context.now`. La función MUST ser
+determinística: el mismo `context` produce siempre el mismo `{decision, reason}`. `Decision` SHALL
+ser un objeto `{decision, reason}`: `decision` es una de `REASK`, `ASK_RECIPIENT`, `ASK_PIN`,
+`ASK_CONFIRM`, `REQUIRE_AUTH`, `PAY`, `REJECT`, y `reason` un código de cierre de la lista cerrada
+del requisito "La Decision incluye un reason". El mapeo de cada `Decision` a `TurnState` lo hace el
+orquestador, no el motor.
 
 #### El contexto de entrada
 
-El motor SHALL recibir todo lo que necesita en un único objeto `context` que arma el orquestador; el motor MUST NOT calcular nada del contexto. Los tipos y campos están en `design.md` (Contexto de entrada) y quedaron decididos el 2026-10-16 con ML 2, ML 1 y Pagos.
+El motor SHALL recibir todo lo que necesita en un único objeto `context`. El orquestador SHALL armar
+el `context` completo; el motor no calcula nada del contexto. La forma y los nombres de los campos
+están decididos (2026-10-16 con ML 2, ML 1 y Pagos; ver la nota de abajo):
+
+```ts
+type Decision = { decision: "REASK" | "ASK_RECIPIENT" | "ASK_PIN" | "ASK_CONFIRM" | "REQUIRE_AUTH" | "PAY" | "REJECT"; reason: Reason }
+
+type Reason =
+  | "CANCELLED_BY_USER" | "INTENT_UNKNOWN" | "AMOUNT_ERROR" | "INTENT_AMBIGUOUS" | "AMOUNT_MISSING"
+  | "RECIPIENT_MISSING" | "INTENT_UNCLEAR" | "INTENT_LOW_CONFIDENCE" | "TRANSCRIPT_LOW_CONFIDENCE"
+  | "RECIPIENT_NOT_FOUND" | "RECIPIENT_AMBIGUOUS" | "NO_BUDGET_GRANT" | "PENDING_PAYMENT_SAME_RECIPIENT"
+  | "PENDING_PAYMENT_UNCONFIRMED"
+  | "VOICE_NOT_VERIFIED" | "NEW_RECIPIENT" | "HIGH_AMOUNT" | "ALL_CHECKS_PASSED"
+  | "PIN_LOCKED" | "PIN_CORRECT" | "PIN_WRONG" | "PIN_ATTEMPTS_EXHAUSTED" | "PIN_INVALID_FORMAT"
+  | "CONFIRMED" | "CONFIRMED_NEEDS_WALLET_AUTH" | "USER_DECLINED" | "REPLY_UNCLEAR_ASK_AGAIN" | "REPLY_UNCLEAR_REJECTED"
+  | "CHALLENGE_RETRY" | "CHALLENGE_FAILED" | "CHALLENGE_VOICE_NOT_VERIFIED" | "CONFIRMED_WITH_PIN"  // desafío de voz [DECIDIDO 2026-10-17, presencial]: el enum pasa de 28 a 32
+
+type Context = {
+  phase: "COMMAND" | "PIN" | "CONFIRMATION"      // decidido 2026-10-16: la fija el orquestador según el TurnState
+                                                 // (AWAITING_COMMAND→COMMAND, AWAITING_PIN→PIN, AWAITING_CONFIRMATION→CONFIRMATION)
+  intent: {                                      // Intent de ML 1 (contrato-voz)
+    action: "PAY" | "CANCEL" | "UNKNOWN"
+    amount: Amount | null                        // Amount = { value: string de dígitos, assetCode, assetScale }
+    amountError: "TOO_MANY_DECIMALS" | "AMBIGUOUS_AMOUNT" | "INVALID_AMOUNT" | null
+    recipient: string | null
+    status: "OK" | "AMBIGUOUS" | "UNCLEAR"
+  }
+  resolution:
+    | { kind: "RESOLVED"; contact: { alias: string; name: string; walletAddress: string; previouslyPaid: boolean } }
+    | { kind: "CHOICE"; options: { alias: string; name: string }[] }
+    | { kind: "NOT_FOUND" }
+  voice: { status: "VERIFIED" | "BELOW_THRESHOLD" | "NOT_AVAILABLE"; score: number | null }
+  enrolled: boolean                              // en H1, voice.status llega siempre NOT_AVAILABLE (comandos por texto)
+  hasBudgetGrant: boolean
+  quote: { debitAmount: Amount; receiveAmount: Amount; exceedsRemaining: boolean } | null  // null si no hay grant
+  pendingPayment: { recipient: string; createdAt: string; status: "PROCESSING" | "COMPLETED" | "FAILED" } | null
+    // valores del Contrato A; decidido: un pago sin paymentId (los 3 intentos de POST /v1/payments
+    // terminaron en 502) cuenta como PROCESSING desde el primer intento; createdAt es el momento
+    // de creación del pago o, si no hay pago, del primer intento de POST /v1/payments
+  now: string                                    // la hora la trae el contexto; el motor no consulta el reloj
+  reply: "YES" | "NO" | "UNCLEAR" | null
+  unclearReplies: number                         // decidido 2026-10-16: lo lleva el orquestador; se reinicia al entrar a AWAITING_CONFIRMATION
+  confirmation: {                                // desafío de voz [DECIDIDO 2026-10-17, presencial]; la arma el orquestador en AWAITING_CONFIRMATION; null fuera de la confirmación
+    mode: "REPLY" | "CHALLENGE"                  // CHALLENGE solo si config.confirmationChallenge está activa y el comando se verificó por voz sin PIN (voice.status == "VERIFIED" en el comando);
+                                                 // si el pago pasó por PIN (texto, voz no verificada, destinatario nuevo, monto alto), mode = "REPLY": el PIN ya es el segundo factor (no hay ciclos de PIN)
+    phraseScore: number | null                   // coincidencia de la respuesta con la frase pedida (0–1; la calcula Voz con phrase_match); null si no hubo respuesta por voz
+    voice: { status: "VERIFIED" | "BELOW_THRESHOLD" | "NOT_AVAILABLE"; score: number | null } | null
+                                                 // resultado de verify sobre el audio de la respuesta al desafío (la frase dura ~3 s, sobre minVerifySeconds); null si no hubo desafío
+    challengeAttempts: number                    // desafíos ya fallados en esta confirmación (lo lleva el orquestador)
+  } | null
+  pin: { result: "OK" | "WRONG" | "INVALID_FORMAT" | null; sessionFailures: number; locked: boolean }  // lo produce pin-validation
+  transcriptConfidence: number | null            // regla 2b: con corte activo, un puntaje bajo → REASK; null → el corte se ignora
+  intentConfidence: number | null                // regla 2b: se evalúa antes que el de transcripción
+  config: {
+    highAmountThreshold: Amount | null           // 100.000 COP (decidido X-4, 2026-10-17): {value: "10000000", assetCode: "COP", assetScale: 2}; null = desactivado
+    pendingWindowSeconds: number                 // 120 (decidido 2026-10-16)
+    minIntentConfidence: number | null           // null = corte desactivado (por defecto en H1); valor [PARA DECIDIR] (rol Voz)
+    minTranscriptConfidence: number | null       // null = desactivado (por defecto en H1); valor [PARA DECIDIR] (rol Voz); más flexible que el de intención
+    confirmationChallenge: boolean               // apagada por defecto: con false todo funciona como hoy [DECIDIDO 2026-10-17, presencial]
+    challengePhraseMatchMin: number              // 0.80 por defecto: corte de coincidencia de la frase del desafío (borde inclusivo: 0.80 coincide)
+  }
+}
+```
+
+**Decidido 2026-10-16 con ML 2, ML 1 y Pagos:**
+
+1. El orquestador arma el `context` completo; el motor no calcula nada.
+2. El orquestador fija `phase` según el `TurnState`: `AWAITING_COMMAND` → `COMMAND`, `AWAITING_PIN` → `PIN`, `AWAITING_CONFIRMATION` → `CONFIRMATION`.
+3. `pendingPayment.status` usa los valores del Contrato A (`PROCESSING | COMPLETED | FAILED`); solo `PROCESSING` cuenta como "abierto".
+4. El destinatario del pago pendiente se compara por wallet address resuelta, no por alias.
+5. `unclearReplies` lo lleva el orquestador; se reinicia al entrar a `AWAITING_CONFIRMATION`.
+6. `previouslyPaid` va dentro de `resolution.contact`.
+7. El monto de la regla 8 es `quote.receiveAmount`.
+8. Un pago sin `paymentId` (los 3 intentos de `POST /v1/payments` terminaron en `502`) cuenta como
+`PROCESSING` desde el primer intento: el orquestador arma `pendingPayment.status = "PROCESSING"`.
+9. `pendingPayment.createdAt` es el momento de la creación del pago o, si no hay pago, el momento
+del primer intento de `POST /v1/payments`.
+
+Notas:
+
+- `resolution` replica el tipo `Resolution` del contrato-voz menos el caso `UNCLEAR` (solo existe
+en `resolve_choice`, que no pasa por el motor); nombres alineados con ML 1 (decidido 2026-10-16
+con ML 2, ML 1 y Pagos).
+- Los puntajes de confianza alimentan la regla 2b cuando su corte está configurado; con corte
+`null` (por defecto en H1) o puntaje `null` (p. ej. comando por texto) la regla no aplica. Los
+VALORES de los cortes los propone el rol Voz tras su batería **[PARA DECIDIR]** (rol Voz); el corte
+de transcripción MUST ser más flexible (menor) que el de intención (principio del 16 oct,
+`docs/decisiones.md` 3b).
 
 #### La Decision incluye un reason
 
-Además del `decision`, el motor SHALL devolver un `reason`: un código estable en inglés de un enum cerrado (uno por regla o rama) que el orquestador usa como clave de la plantilla de `say`. El motor MUST NOT generar texto libre, usar el LLM ni incluir datos del request (PIN, montos, transcripciones, nombres) en el `reason`. La tabla regla → reason está en `design.md`.
+Además del `decision`, el motor SHALL devolver un `reason`: un código estable en inglés, de un
+**enum cerrado** (uno por regla o rama). El `reason` SHALL servir de clave para la plantilla de
+`say` que muestra al usuario: cada `reason` se asocia a una plantilla del catálogo de ML 1/Pagos
+(en español). El motor MUST NOT generar texto libre ni usar el LLM (`turn-orchestration`: el `say`
+sale de plantillas); solo emite el código. El `reason` MUST NOT contener datos del request (ni el
+PIN, ni montos, ni transcripciones, ni nombres), y MUST NOT depender del reloj ni del azar: es tan
+determinista como la decisión.
+
+Tabla regla → reason:
+
+| Fase | Regla / rama | Decision | Reason |
+| --- | --- | --- | --- |
+| COMMAND | 1 `CANCEL` | `REJECT` | `CANCELLED_BY_USER` |
+| COMMAND | 2 intención inválida (reason derivado por prioridad) | `REASK` | `INTENT_UNKNOWN`, `AMOUNT_ERROR`, `INTENT_AMBIGUOUS`, `AMOUNT_MISSING`, `RECIPIENT_MISSING` o `INTENT_UNCLEAR` |
+| COMMAND | 2b confianza bajo el corte activo (primero intención, luego transcripción) | `REASK` | `INTENT_LOW_CONFIDENCE` o `TRANSCRIPT_LOW_CONFIDENCE` |
+| COMMAND | 3 `NOT_FOUND` | `REASK` | `RECIPIENT_NOT_FOUND` |
+| COMMAND | 4 `CHOICE` | `ASK_RECIPIENT` | `RECIPIENT_AMBIGUOUS` |
+| COMMAND | 5 sin grant | `REQUIRE_AUTH` | `NO_BUDGET_GRANT` |
+| COMMAND | 6 pago pendiente mismo destinatario, abierto y dentro de la ventana (camino normal durante `PAYMENT_PENDING`; también defensa en profundidad) | `REASK` | `PENDING_PAYMENT_SAME_RECIPIENT` |
+| COMMAND | 6b aviso post-ventana (condición-marca: no decide por sí sola; marca `warnUnconfirmed` y sigue a 7/8/9) | `ASK_CONFIRM` vía regla 9, o vía fase PIN | `PENDING_PAYMENT_UNCONFIRMED` |
+| COMMAND | 7 voz no verificada | `ASK_PIN` | `VOICE_NOT_VERIFIED` |
+| COMMAND | 8a destinatario nuevo | `ASK_PIN` | `NEW_RECIPIENT` |
+| COMMAND | 8b monto ≥ umbral (o moneda/escala distinta) | `ASK_PIN` | `HIGH_AMOUNT` |
+| COMMAND | 9 resto | `ASK_CONFIRM` | `PENDING_PAYMENT_UNCONFIRMED` si `warnUnconfirmed`; si no `ALL_CHECKS_PASSED` |
+| PIN | `pin.locked` | `REJECT` | `PIN_LOCKED` |
+| PIN | `pin.result == "OK"` | `ASK_CONFIRM` | `PENDING_PAYMENT_UNCONFIRMED` si aplica la 6b; si no `PIN_CORRECT` |
+| PIN | `pin.result == "OK"` con `confirmation.mode == "CHALLENGE"` y `phraseScore >= challengePhraseMatchMin` (la frase ya coincidió; el PIN reemplaza a la voz) | `PAY`, o `REQUIRE_AUTH` con exceso | `CONFIRMED_WITH_PIN`, o `CONFIRMED_NEEDS_WALLET_AUTH` |
+| PIN | `pin.result == "WRONG"`, `sessionFailures < 3` | `ASK_PIN` | `PIN_WRONG` |
+| PIN | `pin.result == "WRONG"`, `sessionFailures >= 3` | `REJECT` | `PIN_ATTEMPTS_EXHAUSTED` |
+| PIN | `pin.result == "INVALID_FORMAT"` o `null` | `ASK_PIN` | `PIN_INVALID_FORMAT` |
+| CONFIRMATION | `YES` con `exceedsRemaining` | `REQUIRE_AUTH` | `CONFIRMED_NEEDS_WALLET_AUTH` |
+| CONFIRMATION | `YES` sin exceso | `PAY` | `CONFIRMED` |
+| CONFIRMATION | `NO` | `REJECT` | `USER_DECLINED` |
+| CONFIRMATION | `UNCLEAR` con `unclearReplies == 0` | `ASK_CONFIRM` | `REPLY_UNCLEAR_ASK_AGAIN` |
+| CONFIRMATION | `UNCLEAR` con `unclearReplies >= 1` | `REJECT` | `REPLY_UNCLEAR_REJECTED` |
+| CONFIRMATION (CHALLENGE) | `reply == "NO"` (o "cancela") | `REJECT` | `USER_DECLINED` |
+| CONFIRMATION (CHALLENGE) | frase que coincide y voz `VERIFIED`, con exceso | `REQUIRE_AUTH` | `CONFIRMED_NEEDS_WALLET_AUTH` |
+| CONFIRMATION (CHALLENGE) | frase que coincide y voz `VERIFIED`, sin exceso | `PAY` | `CONFIRMED` |
+| CONFIRMATION (CHALLENGE) | frase que coincide y voz no verificada (`BELOW_THRESHOLD`, `NOT_AVAILABLE` o `null`) | `ASK_PIN` | `CHALLENGE_VOICE_NOT_VERIFIED` |
+| CONFIRMATION (CHALLENGE) | frase que no coincide (`phraseScore < challengePhraseMatchMin` o `null`) con `challengeAttempts == 0` | `ASK_CONFIRM` | `CHALLENGE_RETRY` |
+| CONFIRMATION (CHALLENGE) | resto (frase que no coincide con `challengeAttempts >= 1`) | `REJECT` | `CHALLENGE_FAILED` |
 
 #### Cada reason se asocia a una situación del catálogo único de Voz
 
-Cada `reason` (salvo `CONFIRMED`) SHALL traducirse a una situación del catálogo único de `say` de Voz (`api/voice/phrases.py`, enum `Situation`); el orquestador inserta los valores y llama a `say` de Voz, y el motor MUST NOT generar texto. Un `reason` sin situación es un error de contrato. La tabla `reason` → situación y los textos de las 13 situaciones nuevas están en `design.md`.
+Cada `reason` del enum SHALL asociarse a una situación del catálogo único de `say` de Voz
+(`api/voice/phrases.py`, enum `Situation`) **[DECIDIDO]**: el motor no tiene textos; el orquestador
+traduce `reason` ⇒ `Situation` (con las variantes que eligen los campos del `context`) y llama al
+`say` de Voz. Voz agrega 13 situaciones nuevas a su catálogo con el mismo nombre del `reason` y los
+textos ya decididos. Un `reason` sin situación (salvo `CONFIRMED`) es un error de contrato. El
+motor nunca genera texto ni usa el LLM (`turn-orchestration`); nada contiene dígitos del PIN.
+
+| reason | Situación del catálogo de Voz |
+| --- | --- |
+| `CANCELLED_BY_USER` | `CANCELLED` |
+| `INTENT_UNKNOWN` | `NOT_UNDERSTOOD` |
+| `INTENT_UNCLEAR` | `NOT_UNDERSTOOD` |
+| `AMOUNT_ERROR` | según `intent.amountError`: `TOO_MANY_DECIMALS` ⇒ `TOO_MANY_DECIMALS`; `AMBIGUOUS_AMOUNT` ⇒ `AMOUNT_AMBIGUOUS`; `INVALID_AMOUNT` ⇒ `INVALID_AMOUNT` |
+| `INTENT_AMBIGUOUS` | `INTENT_AMBIGUOUS` (nueva) |
+| `AMOUNT_MISSING` | `AMOUNT_MISSING` |
+| `RECIPIENT_MISSING` | `RECIPIENT_MISSING` |
+| `INTENT_LOW_CONFIDENCE` | `INTENT_LOW_CONFIDENCE` (nueva) |
+| `TRANSCRIPT_LOW_CONFIDENCE` | `TRANSCRIPT_LOW_CONFIDENCE` (nueva) |
+| `RECIPIENT_NOT_FOUND` | `NOT_FOUND` |
+| `RECIPIENT_AMBIGUOUS` | `CHOICE` (2+ opciones) o `NEAR` (1 opción) |
+| `NO_BUDGET_GRANT` | `AUTH_BUDGET` |
+| `PENDING_PAYMENT_SAME_RECIPIENT` | `PENDING_PAYMENT_SAME_RECIPIENT` (nueva) |
+| `PENDING_PAYMENT_UNCONFIRMED` | con `mode == "REPLY"` (o `confirmation == null`): `PENDING_PAYMENT_UNCONFIRMED` (nueva; `exceedsRemaining == false`) o `PENDING_PAYMENT_UNCONFIRMED_OVERRUN` (nueva; `true`); con `mode == "CHALLENGE"`: `CONFIRM_CHALLENGE` o `CONFIRM_CHALLENGE_OVERRUN` |
+| `CHALLENGE_RETRY` | `CHALLENGE_RETRY` (nueva) |
+| `CHALLENGE_FAILED` | `CHALLENGE_FAILED` (nueva) |
+| `CHALLENGE_VOICE_NOT_VERIFIED` | `PIN_KEYBOARD` |
+| `CONFIRMED_WITH_PIN` | ninguna: el `say` sale del resultado del pago (como `CONFIRMED`) |
+| `VOICE_NOT_VERIFIED` | `PIN_KEYBOARD` (Voz cambia su texto a "Por seguridad, escribe tu PIN en el teclado.") |
+| `NEW_RECIPIENT` | `NEW_RECIPIENT` (nueva) |
+| `HIGH_AMOUNT` | `HIGH_AMOUNT` (nueva) |
+| `ALL_CHECKS_PASSED` | con `confirmation.mode == "REPLY"` (o `confirmation == null`): `CONFIRM` (`exceedsRemaining == false`) o `AUTH_OVERRUN` (`true`); con `mode == "CHALLENGE"`: `CONFIRM_CHALLENGE` (`exceedsRemaining == false`) o `CONFIRM_CHALLENGE_OVERRUN` (`true`) — nuevas |
+| `PIN_CORRECT` | con `mode == "REPLY"` (o `confirmation == null`): `CONFIRM` (`exceedsRemaining == false`) o `AUTH_OVERRUN` (`true`); con `mode == "CHALLENGE"` no se emite (con frase que coincide va a `PAY`/`REQUIRE_AUTH` con `CONFIRMED_WITH_PIN`/`CONFIRMED_NEEDS_WALLET_AUTH`) |
+| `PIN_WRONG` | `PIN_WRONG` (nueva) |
+| `PIN_ATTEMPTS_EXHAUSTED` | `PIN_ATTEMPTS_EXHAUSTED` (nueva) |
+| `PIN_LOCKED` | `PIN_LOCKED` (nueva) |
+| `PIN_INVALID_FORMAT` | `PIN_INVALID_FORMAT` (nueva) |
+| `CONFIRMED` | ninguna: el `say` sale del resultado del pago (`COMPLETED` o `PAYMENT_PENDING`) |
+| `CONFIRMED_NEEDS_WALLET_AUTH` | `AUTH_REDIRECT` |
+| `USER_DECLINED` | `CANCELLED` |
+| `REPLY_UNCLEAR_ASK_AGAIN` | `CONFIRM_UNCLEAR` |
+| `REPLY_UNCLEAR_REJECTED` | `REPLY_UNCLEAR_REJECTED` (nueva) |
+
+Las 13 situaciones nuevas del 16 de octubre más las 4 del desafío de voz (17 de octubre) que Voz
+agrega (mismo nombre que el `reason` cuando aplica), con los textos decididos **[DECIDIDO]**:
+
+| Situación | Texto |
+| --- | --- |
+| `INTENT_AMBIGUOUS` | "No me quedó claro. Dime un solo monto y un solo destinatario." |
+| `INTENT_LOW_CONFIDENCE` | "No te entendí bien. ¿Me lo repites?" |
+| `TRANSCRIPT_LOW_CONFIDENCE` | "No te escuché bien. ¿Me lo repites?" |
+| `PENDING_PAYMENT_SAME_RECIPIENT` | "Tu envío anterior a {nombre} aún no termina. Espera un momento." |
+| `PENDING_PAYMENT_UNCONFIRMED` | "Tu envío anterior a {nombre} no se pudo confirmar. Si envías otro, {nombre} podría recibir los dos. ¿Le envío {recibe} {moneda}?" |
+| `PENDING_PAYMENT_UNCONFIRMED_OVERRUN` | "Tu envío anterior a {nombre} no se pudo confirmar y este supera tu presupuesto. Si sigues, {nombre} podría recibir los dos. ¿Lo autorizas en tu billetera?" |
+| `NEW_RECIPIENT` | "Es la primera vez que le envías a {nombre}. Por seguridad, escribe tu PIN en el teclado." |
+| `HIGH_AMOUNT` | "Es un monto alto. Por seguridad, escribe tu PIN en el teclado." |
+| `PIN_WRONG` | "PIN incorrecto. Te quedan {n} intentos." (con n=1: "PIN incorrecto. Te queda 1 intento.") |
+| `PIN_ATTEMPTS_EXHAUSTED` | "No pude verificarte. No envié nada." |
+| `PIN_LOCKED` | "Por seguridad, el PIN está bloqueado. No envié nada." |
+| `PIN_INVALID_FORMAT` | "El PIN tiene entre 4 y 6 números. Escríbelo otra vez." |
+| `REPLY_UNCLEAR_REJECTED` | "No pude confirmar tu respuesta. No envié nada." |
+| `CONFIRM_CHALLENGE` | "¿Le envío {recibe} {moneda} a {nombre}? Para confirmar, repite: {frase}" (nueva, desafío; `{frase}` la elige el orquestador del banco) |
+| `CONFIRM_CHALLENGE_OVERRUN` | "Supera tu presupuesto. Para autorizarlo en tu billetera, repite: {frase}" (nueva, desafío) |
+| `CHALLENGE_RETRY` | "No te entendí. Repite: {frase}" (nueva, desafío) |
+| `CHALLENGE_FAILED` | "No pude confirmar la frase. No envié nada." (nueva, desafío) |
+
+Reglas que se mantienen **[DECIDIDO]**:
+
+(a) El motor nunca genera texto; las llaves `{…}` las inserta el orquestador con el `say` de Voz.
+(b) Antes del "sí" solo se dice `receiveAmount` y nombre, nunca el costo (B-6 ratificado).
+(c) El `say` de un turno de PIN no repite dígitos y `transcript` es `null` (B-7).
+(d) Los montos se formatean con `format_amount` de `amount-parsing` (sin float) y la palabra de la
+moneda sale de la configuración de Voz.
 
 #### Tabla de la fase COMMAND
 
-En fase `COMMAND` el motor SHALL evaluar en orden las reglas 1, 2, 2b, 3, 4, 5, 6, 7, 8 y 9, y devolver la primera que aplique. Condiciones, decisiones y `reason` de cada regla están en `design.md` (Tabla de la fase COMMAND).
+En fase `COMMAND` el motor SHALL decidir con esta tabla ordenada:
+
+| # | Condición | Decision | Reason | Origen |
+| --- | --- | --- | --- | --- |
+| 1 | `intent.action == "CANCEL"` | `REJECT` | `CANCELLED_BY_USER` | catálogo `say` (`CANCELLED`) |
+| 2 | `intent.status != "OK"`, o `intent.action == "UNKNOWN"`, o `intent.amountError != null`, o `intent.amount == null`, o `intent.recipient == null` | `REASK` | derivado por prioridad (ver notas) | SEG-3, SEG-4 |
+| 2b | cortes de confianza activos y puntaje por debajo: primero `minIntentConfidence` vs `intentConfidence`, luego `minTranscriptConfidence` vs `transcriptConfidence` | `REASK` | `INTENT_LOW_CONFIDENCE` o `TRANSCRIPT_LOW_CONFIDENCE` | decisiones.md 3b; decisión con ML 1 (2026-10-16) |
+| 3 | `resolution.kind == "NOT_FOUND"` | `REASK` | `RECIPIENT_NOT_FOUND` | SEG-4 |
+| 4 | `resolution.kind == "CHOICE"` | `ASK_RECIPIENT` | `RECIPIENT_AMBIGUOUS` | SEG-4 |
+| 5 | `hasBudgetGrant == false` (llega con `quote == null`) | `REQUIRE_AUTH` | `NO_BUDGET_GRANT` | SEG-1 |
+| 6 | `pendingPayment` al mismo destinatario, `status: "PROCESSING"` y `now - pendingPayment.createdAt <= pendingWindowSeconds` | `REASK` (decidido con ML 1, 2026-10-16) | `PENDING_PAYMENT_SAME_RECIPIENT` | `turn-orchestration`; **[DECIDIDO 2026-10-16, con Frontend: PAYMENT_PENDING visible, PR #2]** — camino normal mientras el pago está en `PAYMENT_PENDING` |
+| 6b | condición-marca: `pendingPayment` al mismo destinatario, `status: "PROCESSING"` y `now - pendingPayment.createdAt > pendingWindowSeconds` → marca `warnUnconfirmed = true` y SIGUE a 7/8/9 (no decide por sí sola; ver notas) | vía regla 9 o fase PIN | `PENDING_PAYMENT_UNCONFIRMED` | decisión de ML 2 (2026-10-16); falta comunicarlo a Pagos |
+| 7 | `voice.status != "VERIFIED"` (texto, no enrolado o bajo el umbral) | `ASK_PIN` | `VOICE_NOT_VERIFIED` | SEG-6, D3 |
+| 8 | `quote.exceedsRemaining == false` **y** (`contact.previouslyPaid == false` **o** monto ≥ `highAmountThreshold`) | `ASK_PIN` | `NEW_RECIPIENT` o `HIGH_AMOUNT` | SEG-6, D9 |
+| 9 | resto | `ASK_CONFIRM` | `PENDING_PAYMENT_UNCONFIRMED` si `warnUnconfirmed`; si no `ALL_CHECKS_PASSED` | SEG-2, SEG-5 |
+
+Notas:
+
+- Regla 6: "mismo destinatario" se compara por wallet address resuelta, no por alias, y "siga
+abierto" corresponde a `pendingPayment.status == "PROCESSING"` (decidido 2026-10-16 con ML 2, ML 1
+y Pagos). **Decidido con ML 1 (2026-10-16): `REASK`**, con
+`reason: PENDING_PAYMENT_SAME_RECIPIENT`. **[DECIDIDO 2026-10-16, con Frontend: PAYMENT_PENDING**
+**visible, PR #2]** (revierte la opción A): el estado `PAYMENT_PENDING` SÍ se muestra a la usuaria,
+con la frase "Tu envío está en camino. No hace falta repetirlo." (catálogo de Voz), con micrófono y
+texto habilitados; el frontend envía en silencio un único turno de verificación (~20 s,
+`kind=verify_pending`, B-2 ratificado) y el estado cambia cuando llega la respuesta (la wallet/Open
+Payments resuelve si el pago se hizo o falló; lo que pasa después de esa verificación lo define
+`payments-client` (Pagos), no este spec). La regla 6 vuelve a ser el **camino normal** mientras el
+pago está en `PAYMENT_PENDING`: la usuaria puede hablar — dentro de `pendingWindowSeconds` (120 s)
+un comando al mismo destinatario recibe `REASK`; pasada la ventana aplica la 6b. Sigue también como
+defensa en profundidad (segunda pestaña, cliente que no bloquea, reintento de red).
+- Regla 6b (aviso post-ventana) **[DECIDIDO por ML 2, 2026-10-16; falta comunicarlo a Pagos]**:
+pasada la ventana, la regla 6b NO decide por sí sola — devolver `ASK_CONFIRM` aquí se saltaría el
+PIN de las reglas 7 y 8, contra D3/SEG-6 (un comando por texto siempre pide PIN). Es una
+**condición-marca**: si `pendingPayment` es al mismo destinatario (wallet), `status: "PROCESSING"`
+y `now - createdAt > pendingWindowSeconds`, el motor marca `warnUnconfirmed = true` y SIGUE
+evaluando 7, 8 y 9 con normalidad. Efecto: (a) en la regla 9 la decisión sigue siendo
+`ASK_CONFIRM` pero con `reason: PENDING_PAYMENT_UNCONFIRMED` en lugar de `ALL_CHECKS_PASSED`;
+(b) en fase `PIN`, `pin.result == "OK"` sigue siendo `ASK_CONFIRM` pero con
+`reason: PENDING_PAYMENT_UNCONFIRMED` si la 6b se cumple (el orquestador mantiene
+`pendingPayment` en el `context`) o `PIN_CORRECT` si no. Las reglas 7 (`VOICE_NOT_VERIFIED`) y 8
+(`NEW_RECIPIENT`/`HIGH_AMOUNT`) mantienen su prioridad y su reason: piden PIN primero. Con
+`warnUnconfirmed` y `exceedsRemaining == true` sigue siendo `ASK_CONFIRM` y el "sí" lleva a
+`REQUIRE_AUTH` (SEG-5). Ante la advertencia, `NO` → `REJECT` con `USER_DECLINED`.
+- Regla 8: si disparan a la vez destinatario nuevo y monto alto, el `reason` es `NEW_RECIPIENT`
+(destinatario nuevo se evalúa primero dentro de la regla).
+- Regla 2: el `reason` se deriva determinísticamente de los campos del `context`, con esta
+prioridad de evaluación dentro de la regla: `intent.action == "UNKNOWN"` → `INTENT_UNKNOWN`;
+`intent.amountError != null` → `AMOUNT_ERROR`; `intent.status == "AMBIGUOUS"` → `INTENT_AMBIGUOUS`;
+`intent.amount == null` → `AMOUNT_MISSING`; `intent.recipient == null` → `RECIPIENT_MISSING`;
+cualquier otro `intent.status != "OK"` → `INTENT_UNCLEAR`. La decisión es `REASK` en todos los
+casos, y la prioridad NO depende del `status` cuando este es distinto de `OK`. Aclarado con ML 1
+(2026-10-16; lo confirma su código `voz/h1-parser`): falta de monto o de destinatario llega con
+`status: "UNCLEAR"`, `AMBIGUOUS` queda solo para varios montos o varios destinatarios, y
+`UNKNOWN`/`CANCEL` pueden llegar con `status: "OK"`; el motor se guía por los campos del `context`.
+- Regla 2b: los cortes viven en `config` (`minIntentConfidence`, `minTranscriptConfidence`,
+`number | null`; `null` = desactivado, por defecto en H1). La regla evalúa primero la confianza de
+la intención y luego la de la transcripción; con ambos cortes activos, un solo puntaje bajo basta
+para `REASK`. Puntajes altos NO sustituyen la verificación de voz ni ningún otro chequeo.
+- Regla 7 va antes que la 8 y la 9: con la voz no verificada se pide PIN **por identidad** (SEG-6),
+incluso si `exceedsRemaining == true`; ese PIN no reemplaza la aprobación de la wallet de SEG-5.
+- Regla 9 incluye el exceso de presupuesto: va a la wallet **sin PIN por monto** (SEG-5).
+- `intent.status == "AMBIGUOUS"` significa varios montos o varios destinatarios dichos (ML 1 no
+elige) y cae en la regla 2 con `reason: INTENT_AMBIGUOUS`; la ambigüedad de la **agenda** llega con
+`status: "OK"` y `resolution.kind == "CHOICE"` y la resuelve la regla 4. Semántica decidida con
+ML 1 (2026-10-16) **[DECIDIDO]**.
+- `highAmountThreshold` = 100.000 COP **[DECIDIDO 2026-10-17, X-4]**: una reproducción del usuario
+puede pasar como `VERIFIED` (1 de 3 en el experimento), así que la regla 8 pide PIN dentro del
+presupuesto a partir de 100.000 COP; el exceso de presupuesto no cambia (SEG-5: regla 9).
 
 #### Tabla de la fase PIN
 
-En fase `PIN` el motor SHALL decidir en orden: PIN bloqueado → `REJECT`; PIN correcto → `ASK_CONFIRM` (el PIN se suma al "sí", no lo reemplaza); incorrecto con menos de 3 fallos → `ASK_PIN`; con 3 fallos o más → `REJECT`; formato inválido o resultado nulo → `ASK_PIN`. El motor MUST NOT volver a evaluar la tabla de `COMMAND`. Detalle en `design.md`.
+En fase `PIN` el motor SHALL decidir, en orden:
+
+1. `pin.locked == true` → `REJECT` con `reason: PIN_LOCKED`.
+2. `pin.result == "OK"`:
+  - con `confirmation.mode == "CHALLENGE"` y `phraseScore >= challengePhraseMatchMin` (la frase ya
+coincidió; el PIN reemplaza a la voz y el consentimiento ya lo dio la frase): con
+`quote.exceedsRemaining == true` → `REQUIRE_AUTH` con `reason: CONFIRMED_NEEDS_WALLET_AUTH`; si no
+→ `PAY` con `reason: CONFIRMED_WITH_PIN`;
+  - si no → `ASK_CONFIRM` con `reason: PENDING_PAYMENT_UNCONFIRMED` si la condición
+6b se cumple (el orquestador mantiene el `pendingPayment` abierto y pasado el tope en el
+`context`), o `PIN_CORRECT` si no: se evalúan solo las reglas de confirmación previas al "sí"; el
+PIN se **suma** a la confirmación hablada, no la reemplaza (SEG-2). El PIN correcto no produce
+`PAY` por sí solo.
+3. `pin.result == "WRONG"` con `pin.sessionFailures < 3` → `ASK_PIN` con `reason: PIN_WRONG` (el
+orquestador responde `AWAITING_PIN` con los intentos restantes en `say`).
+4. `pin.result == "WRONG"` con `pin.sessionFailures >= 3` → `REJECT` con
+`reason: PIN_ATTEMPTS_EXHAUSTED`.
+5. `pin.result == "INVALID_FORMAT"` o `null` → `ASK_PIN` con `reason: PIN_INVALID_FORMAT` (no
+consume intento; regla de cierre para que la fase nunca quede sin decisión).
+
+En fase `PIN` el motor MUST NOT volver a evaluar la tabla de `COMMAND`: las reglas 1 a 6 ya pasaron
+para llegar a `AWAITING_PIN` y el contexto del comando no cambia.
 
 #### Tabla de la fase CONFIRMATION
 
-En fase `CONFIRMATION` el motor SHALL decidir: "sí" → `REQUIRE_AUTH` si la quote excede el presupuesto, si no `PAY`; "no" → `REJECT`; respuesta poco clara o ausente → `ASK_CONFIRM` la primera vez y `REJECT` desde la segunda. El motor MUST NOT verificar la voz del "sí" (D4). Detalle en `design.md`.
+En fase `CONFIRMATION` con `confirmation.mode == "REPLY"` (o `confirmation == null`) el motor SHALL
+decidir, en orden:
+
+1. `reply == "YES"`: con `quote.exceedsRemaining == true` → `REQUIRE_AUTH` con
+`reason: CONFIRMED_NEEDS_WALLET_AUTH` (grant puntual del exceso, SEG-5); si no → `PAY` con
+`reason: CONFIRMED`.
+2. `reply == "NO"` → `REJECT` con `reason: USER_DECLINED`.
+3. `reply == "UNCLEAR"` con `unclearReplies == 0` → `ASK_CONFIRM` con
+`reason: REPLY_UNCLEAR_ASK_AGAIN` (repregunta una vez).
+4. `reply == "UNCLEAR"` con `unclearReplies >= 1` → `REJECT` con
+`reason: REPLY_UNCLEAR_REJECTED` (SEG-2: lo que no es un "sí" claro es un "no").
+5. `reply == null` se trata como `UNCLEAR` (reglas 3 y 4): la fase nunca queda sin decisión y nada
+se paga sin un "sí" claro.
+
+El motor MUST NOT verificar la voz del "sí": el `context` conserva la verificación del comando
+(D4). Con `confirmation.mode == "CHALLENGE"` la voz de la respuesta llega ya verificada en
+`confirmation.voice` (la arma el orquestador); el motor nunca llama a `verify`. El contador
+`unclearReplies` lo lleva el orquestador y se reinicia al entrar a
+`AWAITING_CONFIRMATION` (decidido 2026-10-16 con ML 2, ML 1 y Pagos).
 
 #### El motor no obedece al LLM
 
-La única regla que emite `PAY` SHALL exigir la fase `CONFIRMATION` y `reply == "YES"`. Ningún contenido del comando o de la respuesta MUST producir `PAY` por sí mismo (SEG-3).
+Ningún contenido del comando o de la respuesta produce por sí mismo un `PAY`: las únicas reglas que
+emiten `PAY` exigen una confirmación posterior al comando: `reply == "YES"` en modo `REPLY`, o la
+frase del desafío que coincide con voz `VERIFIED` o PIN correcto en modo `CHALLENGE` (SEG-3).
 
 #### El mapeo a TurnState no es del motor
 
-El motor SHALL devolver solo el `{decision, reason}`. El orquestador MUST mapear `decision` a `TurnState`, ejecutar las llamadas a Node y usar el `reason` para elegir la plantilla de `say`; el texto nunca lo genera el motor ni el LLM. El mapeo está en `design.md`.
+El motor SHALL devolver solo el `{decision, reason}`. El orquestador mapea `decision` a `TurnState`
+y ejecuta las llamadas a Node que correspondan (`turn-orchestration`): `REASK` →
+`AWAITING_COMMAND`, `ASK_RECIPIENT` → `AWAITING_RECIPIENT_CHOICE`, `ASK_PIN` → `AWAITING_PIN`,
+`ASK_CONFIRM` → `AWAITING_CONFIRMATION`, `REQUIRE_AUTH` → `AWAITING_AUTHORIZATION`, `PAY` → pago
+con el cliente de Node (resultando en `COMPLETED`, `PAYMENT_PENDING` o `REJECTED`) y `REJECT` →
+`REJECTED`. El orquestador SHALL usar `reason` como clave para elegir la plantilla de `say` del
+catálogo (en español); el texto nunca lo genera el motor ni el LLM.
 
 ## Puntos abiertos
+
+### decision-engine
+| Punto | Dueño / estado |
+| --- | --- |
+| `highAmountThreshold` = 100.000 COP (`{value: "10000000", assetCode: "COP", assetScale: 2}`) | **[DECIDIDO 2026-10-17]** (X-4: 1 de 3 reproducciones pasó como `VERIFIED`) — la regla 8 pide PIN dentro del presupuesto a partir de 100.000 COP; el exceso no cambia (SEG-5) |
+| Valores de `minIntentConfidence` y `minTranscriptConfidence` (la regla 2b está decidida; por defecto `null` = desactivado en H1; el corte de transcripción MUST ser más flexible que el de intención) | **[PARA DECIDIR]** — rol Voz, tras su batería |
+| Voz agrega las 17 situaciones de `say` (13 del 16 oct + las 4 del desafío: `CONFIRM_CHALLENGE`, `CONFIRM_CHALLENGE_OVERRUN`, `CHALLENGE_RETRY`, `CHALLENGE_FAILED`), el **banco de frases del desafío** (30 o más frases de 6 a 9 palabras) y cambia el texto de `PIN_KEYBOARD` | **[PENDIENTE de Voz]** — no bloquea al motor |
 
 ### speaker-verification y voice-enrollment (H2)
 | Punto | Dueño / estado |

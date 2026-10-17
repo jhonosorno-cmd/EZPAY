@@ -274,6 +274,41 @@ Mantén cada texto de requisito ≤ 500 caracteres con SHALL/MUST. Respóndeme c
 
 ---
 
+### A13 — Desafío de voz en `decision-engine` y `speaker-verification` (17 oct)
+
+````text
+Instrucción de Daniel (ML 2): agrega el **desafío de voz en la confirmación** a los artifacts `decision-engine` y `speaker-verification` (y al story H1/H2 donde toque). Decisión del equipo [DECIDIDO 2026-10-17, presencial]; lee la propuesta aprobada en el artifact `h2-ml2-speaker-verification/propuesta-confirmacion-con-desafio` antes de escribir. Lee los archivos antes de editar; no toques el repo; requisitos ≤ 500 caracteres con SHALL/MUST.
+
+## Diseño que debe quedar escrito
+**Opción de configuración:** `config.confirmationChallenge: boolean` (apagada por defecto; con `false` todo funciona como hoy) y `config.challengePhraseMatchMin: number` (0,80 por defecto).
+
+**Entrada nueva en el `context`:** `confirmation: { mode: "REPLY" | "CHALLENGE", phraseScore: number | null, voice: { status, score } | null, challengeAttempts: number }`, que arma el orquestador:
+- `mode = "CHALLENGE"` solo si `confirmationChallenge` está activa **y** el comando se verificó por voz sin PIN (`voice.status == "VERIFIED"` en el comando). Si el pago pasó por PIN (texto, voz no verificada, destinatario nuevo, monto alto), `mode = "REPLY"`: el PIN ya es el segundo factor y se confirma con "sí" como hoy. Así no hay ciclos de PIN.
+- `phraseScore`: coincidencia de la respuesta con la frase pedida (0–1, la calcula Voz con `phrase_match`); `null` si no hubo respuesta por voz.
+- `voice`: resultado de `verify` sobre el audio de la respuesta al desafío (la frase dura ~3 s, por encima de `minVerifySeconds`).
+- `challengeAttempts`: desafíos ya fallados en esta confirmación (lo lleva el orquestador).
+
+**Fase `CONFIRMATION` con `mode == "CHALLENGE"`, en orden (primera que aplique):**
+1. `reply == "NO"` (la respuesta fue "no"/"cancela") ⇒ `REJECT` / `USER_DECLINED`.
+2. `phraseScore >= challengePhraseMatchMin` y `confirmation.voice.status == "VERIFIED"` ⇒ con exceso `REQUIRE_AUTH` / `CONFIRMED_NEEDS_WALLET_AUTH`, si no `PAY` / `CONFIRMED`.
+3. `phraseScore >= challengePhraseMatchMin` y voz NO verificada (`BELOW_THRESHOLD`, `NOT_AVAILABLE` o `null`) ⇒ `ASK_PIN` / `CHALLENGE_VOICE_NOT_VERIFIED`.
+4. Frase que no coincide (`phraseScore` bajo el corte o `null`) con `challengeAttempts == 0` ⇒ `ASK_CONFIRM` / `CHALLENGE_RETRY` (el orquestador elige otra frase del banco).
+5. Si no ⇒ `REJECT` / `CHALLENGE_FAILED`.
+Con `mode == "REPLY"` la fase `CONFIRMATION` queda exactamente como hoy.
+
+**Fase `PIN` después de un desafío:** si `confirmation.mode == "CHALLENGE"` y `phraseScore >= challengePhraseMatchMin` (la frase ya coincidió) y `pin.result == "OK"` ⇒ con exceso `REQUIRE_AUTH` / `CONFIRMED_NEEDS_WALLET_AUTH`, si no `PAY` / `CONFIRMED_WITH_PIN` (el PIN reemplaza a la voz; el consentimiento ya lo dio la frase). El resto de la fase PIN no cambia.
+
+**Reasons nuevos (enum pasa de 28 a 32):** `CHALLENGE_RETRY`, `CHALLENGE_FAILED`, `CHALLENGE_VOICE_NOT_VERIFIED`, `CONFIRMED_WITH_PIN`.
+
+**Traducción reason ⇒ situación del catálogo de Voz:** `ALL_CHECKS_PASSED` y `PIN_CORRECT` (y `PENDING_PAYMENT_UNCONFIRMED`) cuando `confirmation.mode == "CHALLENGE"` ⇒ `CONFIRM_CHALLENGE` (sin exceso) o `CONFIRM_CHALLENGE_OVERRUN` (con exceso); con `mode == "REPLY"` como hoy. `CHALLENGE_RETRY` ⇒ `CHALLENGE_RETRY`; `CHALLENGE_FAILED` ⇒ `CHALLENGE_FAILED`; `CHALLENGE_VOICE_NOT_VERIFIED` ⇒ `PIN_KEYBOARD`; `CONFIRMED_WITH_PIN` ⇒ ninguna (como `CONFIRMED`). Textos propuestos para Voz: `CONFIRM_CHALLENGE` "¿Le envío {recibe} {moneda} a {nombre}? Para confirmar, repite: {frase}"; `CONFIRM_CHALLENGE_OVERRUN` "Supera tu presupuesto. Para autorizarlo en tu billetera, repite: {frase}"; `CHALLENGE_RETRY` "No te entendí. Repite: {frase}"; `CHALLENGE_FAILED` "No pude confirmar la frase. No envié nada.". Anota en "Puntos abiertos" que Voz agrega estas 4 situaciones y el banco de frases (pendiente de Voz).
+
+**Escenarios mínimos:** desafío correcto con voz verificada ⇒ PAY; con exceso ⇒ REQUIRE_AUTH; frase correcta y voz de otra persona (grabación con otra frase o impostor) ⇒ ASK_PIN y luego PIN OK ⇒ PAY/CONFIRMED_WITH_PIN; frase incorrecta una vez ⇒ CHALLENGE_RETRY; dos veces ⇒ REJECT/CHALLENGE_FAILED; "no" ⇒ REJECT; grabación reproducida (frase vieja) ⇒ no coincide ⇒ retry y luego REJECT; comando por texto (PIN) ⇒ `mode REPLY` y "sí" como hoy; opción apagada ⇒ igual que hoy; `phraseScore` exactamente 0,80 ⇒ coincide (borde inclusivo).
+
+**`speaker-verification`:** la verificación corre también sobre el audio de la respuesta al desafío (`confirmation.voice`). Actualiza el requisito/escenario "Solo se verifica la voz del comando" (D4): en `mode REPLY` el "sí" sigue sin verificarse; en `mode CHALLENGE` la respuesta sí se verifica. Trazabilidad: decisión del equipo 2026-10-17 y evidencia X-4.
+
+Respóndeme con lo que cambió y el enum final de reasons.
+````
+
 ## B. Builder
 
 ### B1 — Implementar el motor y el PIN en local
