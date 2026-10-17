@@ -89,19 +89,18 @@ Las palabras de jerga ("luca", "barra", etc.) SHALL convertirse solo si están e
 Si el monto tiene más decimales que `assetScale`, el parser MUST responder `TOO_MANY_DECIMALS` y MUST NOT redondear ni truncar. Un dígito sobrante igual a cero no cuenta como decimal que sobra.
 
 #### Scenario: Más decimales que la escala
-- **WHEN** el parser convierte "10,505" con `assetScale: 2`
+- **WHEN** el parser convierte "10,5051" con `assetScale: 2`
 - **THEN** responde `TOO_MANY_DECIMALS`
 - **AND** no devuelve ningún monto
 
 #### Scenario: Caso que un float redondearía
-- **WHEN** el parser convierte "1,005" con `assetScale: 2`
+- **WHEN** el parser convierte "1,0051" con `assetScale: 2`
 - **THEN** responde `TOO_MANY_DECIMALS`
 
-#### Scenario: Coma con tres dígitos que terminan en cero
-- **WHEN** el parser convierte "150,000" o "10,500" con `assetScale: 2`
-- **THEN** responde `AMBIGUOUS_AMOUNT`
-- **AND** no devuelve ningún monto
-- **NOTE** Esperaba 150 pesos y 10,50; pasó que la transcripción de Groq escribe la coma como separador de miles ("$150,000" por ciento cincuenta mil). Cambio: se pregunta de nuevo (17 oct, prueba "lejos" de H3).
+#### Scenario: Coma de miles
+- **WHEN** el parser convierte "73,450", "150,000" o "10,500" con `assetScale: 2`
+- **THEN** el resultado es `{ value: "7345000" }`, `{ value: "15000000" }` y `{ value: "1050000" }`
+- **NOTE** Esperaba 73,45 pesos (y luego "ambiguo"); pasó que Groq escribe la coma como separador de miles ("$150,000"). Cambio: una coma con exactamente tres dígitos y de 1 a 3 enteros distintos de cero es separador de miles (17 oct, batería de H3).
 
 #### Scenario: Escala cero
 - **WHEN** el parser convierte "10,50" con `assetScale: 0`

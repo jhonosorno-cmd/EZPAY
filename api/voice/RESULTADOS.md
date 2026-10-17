@@ -111,7 +111,7 @@ local fuera del repo (sin audio). El resumen es este; las transcripciones de voc
 - **Ningún pago equivocado** en ninguna de las tres tandas (22 frases): lo que no se entendió quedó en `SEGURO` o `UNCLEAR`. Con tele de
   fondo el silencio dio texto vacío y todo lo demás salió bien; la tanda más difícil fue la de la distancia (`lejos`).
 - **Hallazgos corregidos:** el filtro de no-habla ya no deja pasar ruido sobre silencio (exige un tramo con energía, no solo el RMS
-  global) y ya deja pasar una palabra corta; y un monto con coma de tres dígitos (`$150,000`) es `AMBIGUOUS_AMOUNT` en vez de 150 pesos.
+  global) y ya deja pasar una palabra corta; y un monto con coma de tres dígitos (`$150,000`, `73,450`) se lee como miles en vez de 150 pesos.
 - **Hallazgo pospuesto:** Whisper agrega una "Y" al inicio cuando se empieza de golpe y la gramática de intención la rechaza
   (`UNKNOWN`, seguro). Se espera a la grabación que arranca cuando el navegador lo confirma (PR #9 del Frontend).
 - **Cortes de confianza (3b):** con una sola voz y `transcriptConfidence` en `null` no hay de dónde calibrarlos; se ratifica `null`
@@ -128,7 +128,7 @@ Pendiente: cambiar las frases flojas por otras que empiecen con una palabra larg
 
 ## Riesgos conocidos y pendientes menores
 
-- `20,000` y `150,000` (coma con tres dígitos que terminan en cero) son `AMBIGUOUS_AMOUNT` y se vuelve a preguntar: Groq escribe la coma como separador de miles. Antes se leían como 20 y 150 pesos (H-4, cambiado el 17 oct tras la prueba "lejos" de H3).
+- `73,450`, `150,000` y `20,000` (coma con tres dígitos) se leen como miles: Groq escribe así la coma. Antes eran 73,45 / 150 / 20 pesos (H-4) y, por un día, `AMBIGUOUS_AMOUNT` (cambiado el 17 oct tras la batería de H3). La confirmación hablada dice la cifra completa.
 - "la ura" (nombre partido por la transcripción) da `NOT_FOUND` en vez de ofrecer las dos Lauras. Seguro.
 - "…a Laura vecina gracias" deja "gracias" en el destinatario, y la agenda no lo encuentra. Seguro.
 - "José" con un carácter invisible pegado se resuelve a José (el invisible separa palabras). La
