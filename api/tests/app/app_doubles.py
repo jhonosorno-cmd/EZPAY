@@ -8,6 +8,7 @@ from pathlib import Path
 import yaml
 
 from app.config import load_settings
+from app.contacts import ContactError, ContactBook, WalletInfo
 from app.orchestrator import Orchestrator
 from app.voice_io import VoiceIO
 from payments_client import PaymentPending, PaymentsError
@@ -27,6 +28,20 @@ AGENDA = {
 
 def amt(value: str) -> dict:
     return {"value": value, "assetCode": "COP", "assetScale": 2}
+
+
+class FakeResolver:
+    """Open Payments falso para las wallet addresses: /usd está en USD y /nadie no existe."""
+
+    def __init__(self):
+        self.calls = []
+
+    def resolve(self, url):
+        self.calls.append(url)
+        if url.endswith("/nadie"):
+            raise ContactError(400, "INVALID_WALLET", "No pude encontrar esa billetera")
+        code = "USD" if url.endswith("/usd") else "COP"
+        return WalletInfo(url, url.rsplit("/", 1)[-1].capitalize(), code, 2)
 
 
 class FakePayments:
@@ -154,7 +169,8 @@ def build(tmp: Path):
     settings = replace(load_settings(), agenda_path=agenda, data_dir=tmp / "app", wallet_address="https://wallet.test/marta",
                        asset_code="COP", asset_scale=2, warmup_local_whisper=False)
     payments, voice, pin = FakePayments(), FakeVoice(), FakePin()
-    orch = Orchestrator(settings, payments, voice, pin_verifier=pin)
+    contacts = ContactBook(tmp / "app" / "contacts.json", FakeResolver(), "COP", 2, settings.wallet_address, agenda)
+    orch = Orchestrator(settings, payments, voice, pin_verifier=pin, contacts=contacts)
     return orch, payments, voice, pin
 
 
