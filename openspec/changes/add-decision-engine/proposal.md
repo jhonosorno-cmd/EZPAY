@@ -10,8 +10,8 @@ no tienen contra qué verificarse.
 
 - Dos capabilities nuevas para H1:
   - `decision-engine`: función pura `decide(context) -> {decision, reason}` con tabla de reglas
-    ordenada por fase (`COMMAND`, `PIN`, `CONFIRMATION`), enum cerrado de `reason` y plantillas de `say`
-    por `reason`.
+    ordenada por fase (`COMMAND`, `PIN`, `CONFIRMATION`), enum cerrado de `reason` y traducción de cada
+    `reason` a una situación del catálogo único de `say` de Voz.
   - `pin-validation`: PIN mínimo con hash con sal en configuración, comparación en tiempo constante,
     contadores de intentos (3 por sesión, 5 en total) y privacidad del PIN.
 - Ningún requisito común cambia ni se contradicen los Contratos v1 más v1.1 (ratificados el 16 oct).
@@ -27,7 +27,7 @@ no tienen contra qué verificarse.
 ### New Capabilities
 
 - `decision-engine`: decisión determinística de cada turno de un pago, con `reason` para elegir la
-  plantilla de `say`.
+  situación de `say` del catálogo de Voz.
 - `pin-validation`: validación del PIN dentro del backend Python, con contadores y bloqueo.
 
 ### Modified Capabilities
@@ -38,9 +38,9 @@ Ninguna: `openspec/specs/` está vacío. Los requisitos comunes (`payment-safety
 ## Impact
 
 - Pagos: el orquestador arma el `context` completo, fija `phase`, lleva `unclearReplies`, mapea la
-  `Decision` a `TurnState` y elige la plantilla de `say` por `reason`.
-- Voz (ML 1): entrega `Intent`, `Resolution`, `Reply` y los puntajes de confianza; escribe el
-  catálogo de `say` con las plantillas por `reason`; propone los valores de los cortes de confianza.
-- Frontend: trata `PAYMENT_PENDING` como pantalla de carga y envía en silencio el turno único de
-  verificación; el PIN llega por el campo `text` hasta que exista el teclado.
+  `Decision` a `TurnState` y traduce el `reason` a una situación de `say` con `say_situation`.
+- Voz (ML 1): entrega `Intent`, `Resolution`, `Reply` y los puntajes de confianza; su catálogo de
+  `say` (`api/voice/phrases.py`) es el único y agrega las 13 situaciones nuevas; propone los valores de los cortes de confianza.
+- Frontend: muestra `PAYMENT_PENDING` ("en camino") y envía en silencio el turno único de
+  verificación (PR #2); el PIN llega por el campo `text` hasta que exista el teclado.
 - Contratos: sin cambios nuevos; B-7 y B-8 (ya ratificados) rigen el turno de PIN.

@@ -18,8 +18,8 @@ Material de referencia de las capabilities `decision-engine` y `pin-validation`:
 | Regla 5 sin grant → `REQUIRE_AUTH` | SEG-1; `turn-orchestration` "Sin grant de presupuesto" (allí llamada "regla 4 de la tabla de ML 2"; en esta tabla es la 5) |
 | Regla 6 pago pendiente | `turn-orchestration` "Decisión sobre el pago pendiente" (ventana decidida: 120 s, 2026-10-16) |
 | Regla 6b aviso post-ventana → `PENDING_PAYMENT_UNCONFIRMED` | Decisión de ML 2 (2026-10-16, opción A); `turn-orchestration` "Pasado el tope con un sí claro"; falta comunicarlo a Pagos |
-| `PAYMENT_PENDING` → pantalla de carga (opción A) | Decisión de ML 2 (2026-10-16); B-2 ratificado; comunicar a Pagos y Frontend |
-| Plantillas de `say` por `reason` | Decisión de Daniel (ML 2, 2026-10-16); B-6 ratificado; `turn-orchestration` "Frases de `say` de plantillas, nunca del LLM" |
+| `PAYMENT_PENDING` visible con frase "Tu envío está en camino…" y verificación silenciosa (~20 s) | **[DECIDIDO 2026-10-16, con Frontend: PAYMENT_PENDING visible, PR #2]**; B-2 ratificado; revierte la opción A |
+| Cada `reason` se asocia a una situación del catálogo único de Voz (`api/voice/phrases.py`) | Decisión de Daniel (2026-10-16): conflictos 2 y 3 de `docs/flujos/flujo-con-prs.md` §8; B-6 ratificado; `turn-orchestration` "Frases de `say` de plantillas, nunca del LLM" |
 | Regla 7 voz no verificada → `ASK_PIN` | SEG-6; D3; `turn-orchestration` "Comando por texto…" y "Usuario no enrolado" |
 | Regla 8 monto alto o destinatario nuevo → `ASK_PIN` | SEG-6; D9; `turn-orchestration` "Historial de pagos por destinatario" |
 | Regla 9 resto → `ASK_CONFIRM` | SEG-2; SEG-5 y SEG-6 (el exceso no pide PIN por monto) |
@@ -152,7 +152,7 @@ Tabla regla → reason:
 | COMMAND | 3 `NOT_FOUND` | `REASK` | `RECIPIENT_NOT_FOUND` |
 | COMMAND | 4 `CHOICE` | `ASK_RECIPIENT` | `RECIPIENT_AMBIGUOUS` |
 | COMMAND | 5 sin grant | `REQUIRE_AUTH` | `NO_BUDGET_GRANT` |
-| COMMAND | 6 pago pendiente mismo destinatario, abierto y dentro de la ventana (camino real tras liberarse la UI; también defensa en profundidad) | `REASK` | `PENDING_PAYMENT_SAME_RECIPIENT` |
+| COMMAND | 6 pago pendiente mismo destinatario, abierto y dentro de la ventana (camino normal durante `PAYMENT_PENDING`; también defensa en profundidad) | `REASK` | `PENDING_PAYMENT_SAME_RECIPIENT` |
 | COMMAND | 6b aviso post-ventana (condición-marca: no decide por sí sola; marca `warnUnconfirmed` y sigue a 7/8/9) | `ASK_CONFIRM` vía regla 9, o vía fase PIN | `PENDING_PAYMENT_UNCONFIRMED` |
 | COMMAND | 7 voz no verificada | `ASK_PIN` | `VOICE_NOT_VERIFIED` |
 | COMMAND | 8a destinatario nuevo | `ASK_PIN` | `NEW_RECIPIENT` |
@@ -169,50 +169,72 @@ Tabla regla → reason:
 | CONFIRMATION | `UNCLEAR` con `unclearReplies == 0` | `ASK_CONFIRM` | `REPLY_UNCLEAR_ASK_AGAIN` |
 | CONFIRMATION | `UNCLEAR` con `unclearReplies >= 1` | `REJECT` | `REPLY_UNCLEAR_REJECTED` |
 
-#### Plantillas de `say` por reason
+#### Cada reason se asocia a una situación del catálogo único de Voz
 
-Cada `reason` del enum SHALL tener exactamente una plantilla (o juego de variantes) de `say`
-**[DECIDIDO]** por Daniel el 2026-10-16; el catálogo vive en ML 1 (`api/voice`) y el orquestador
-(Pagos) inserta los valores. Un `reason` sin plantilla es un error de contrato. Las llaves `{…}` las
-inserta el orquestador, nunca el motor; nada lo genera un LLM (`turn-orchestration`); ningún `say`
-contiene dígitos del PIN. Textos en español neutro, tuteo, sin género.
+Cada `reason` del enum SHALL asociarse a una situación del catálogo único de `say` de Voz
+(`api/voice/phrases.py`, enum `Situation`) **[DECIDIDO]**: el motor no tiene textos; el orquestador
+traduce `reason` ⇒ `Situation` (con las variantes que eligen los campos del `context`) y llama al
+`say` de Voz. Voz agrega 13 situaciones nuevas a su catálogo con el mismo nombre del `reason` y los
+textos ya decididos. Un `reason` sin situación (salvo `CONFIRMED`) es un error de contrato. El
+motor nunca genera texto ni usa el LLM (`turn-orchestration`); nada contiene dígitos del PIN.
 
-| reason | Plantilla |
+| reason | Situación del catálogo de Voz |
 | --- | --- |
-| `CANCELLED_BY_USER` | "Listo, cancelé el envío." |
-| `INTENT_UNKNOWN` | "No te entendí. ¿Me lo repites?" |
-| `AMOUNT_ERROR` | variante por `intent.amountError`: `TOO_MANY_DECIMALS` "Solo puedo enviar montos con hasta {n} decimales. ¿Me lo dices otra vez?"; `AMBIGUOUS_AMOUNT` "No me quedó claro el monto. ¿Me lo dices otra vez?"; `INVALID_AMOUNT` "Ese monto no es válido. ¿Cuánto quieres enviar?" |
+| `CANCELLED_BY_USER` | `CANCELLED` |
+| `INTENT_UNKNOWN` | `NOT_UNDERSTOOD` |
+| `INTENT_UNCLEAR` | `NOT_UNDERSTOOD` |
+| `AMOUNT_ERROR` | según `intent.amountError`: `TOO_MANY_DECIMALS` ⇒ `TOO_MANY_DECIMALS`; `AMBIGUOUS_AMOUNT` ⇒ `AMOUNT_AMBIGUOUS`; `INVALID_AMOUNT` ⇒ `INVALID_AMOUNT` |
+| `INTENT_AMBIGUOUS` | `INTENT_AMBIGUOUS` (nueva) |
+| `AMOUNT_MISSING` | `AMOUNT_MISSING` |
+| `RECIPIENT_MISSING` | `RECIPIENT_MISSING` |
+| `INTENT_LOW_CONFIDENCE` | `INTENT_LOW_CONFIDENCE` (nueva) |
+| `TRANSCRIPT_LOW_CONFIDENCE` | `TRANSCRIPT_LOW_CONFIDENCE` (nueva) |
+| `RECIPIENT_NOT_FOUND` | `NOT_FOUND` |
+| `RECIPIENT_AMBIGUOUS` | `CHOICE` (2+ opciones) o `NEAR` (1 opción) |
+| `NO_BUDGET_GRANT` | `AUTH_BUDGET` |
+| `PENDING_PAYMENT_SAME_RECIPIENT` | `PENDING_PAYMENT_SAME_RECIPIENT` (nueva) |
+| `PENDING_PAYMENT_UNCONFIRMED` | `PENDING_PAYMENT_UNCONFIRMED` (nueva; `exceedsRemaining == false`) o `PENDING_PAYMENT_UNCONFIRMED_OVERRUN` (nueva; `true`) |
+| `VOICE_NOT_VERIFIED` | `PIN_KEYBOARD` (Voz cambia su texto a "Por seguridad, escribe tu PIN en el teclado.") |
+| `NEW_RECIPIENT` | `NEW_RECIPIENT` (nueva) |
+| `HIGH_AMOUNT` | `HIGH_AMOUNT` (nueva) |
+| `ALL_CHECKS_PASSED` | `CONFIRM` (`exceedsRemaining == false`) o `AUTH_OVERRUN` (`true`) |
+| `PIN_CORRECT` | `CONFIRM` (`exceedsRemaining == false`) o `AUTH_OVERRUN` (`true`) |
+| `PIN_WRONG` | `PIN_WRONG` (nueva) |
+| `PIN_ATTEMPTS_EXHAUSTED` | `PIN_ATTEMPTS_EXHAUSTED` (nueva) |
+| `PIN_LOCKED` | `PIN_LOCKED` (nueva) |
+| `PIN_INVALID_FORMAT` | `PIN_INVALID_FORMAT` (nueva) |
+| `CONFIRMED` | ninguna: el `say` sale del resultado del pago (`COMPLETED` o `PAYMENT_PENDING`) |
+| `CONFIRMED_NEEDS_WALLET_AUTH` | `AUTH_REDIRECT` |
+| `USER_DECLINED` | `CANCELLED` |
+| `REPLY_UNCLEAR_ASK_AGAIN` | `CONFIRM_UNCLEAR` |
+| `REPLY_UNCLEAR_REJECTED` | `REPLY_UNCLEAR_REJECTED` (nueva) |
+
+Las 13 situaciones nuevas que Voz agrega (mismo nombre que el `reason`), con los textos decididos
+**[DECIDIDO]**:
+
+| Situación | Texto |
+| --- | --- |
 | `INTENT_AMBIGUOUS` | "No me quedó claro. Dime un solo monto y un solo destinatario." |
-| `AMOUNT_MISSING` | "¿Cuánto quieres enviar?" |
-| `RECIPIENT_MISSING` | "¿A quién se lo envío?" |
-| `INTENT_UNCLEAR` | "No te entendí. ¿Me lo repites?" |
 | `INTENT_LOW_CONFIDENCE` | "No te entendí bien. ¿Me lo repites?" |
 | `TRANSCRIPT_LOW_CONFIDENCE` | "No te escuché bien. ¿Me lo repites?" |
-| `RECIPIENT_NOT_FOUND` | "No encontré a {destinatario} en tu agenda." |
-| `RECIPIENT_AMBIGUOUS` | variante por número de opciones: 2+ "¿A cuál? {opción1} o {opción2}."; 1 (parecido) "¿Quisiste decir {nombre}?" |
-| `NO_BUDGET_GRANT` | "Para empezar, autoriza tu presupuesto en tu billetera. Toca el botón que dice Aprobar." |
 | `PENDING_PAYMENT_SAME_RECIPIENT` | "Tu envío anterior a {nombre} aún no termina. Espera un momento." |
-| `PENDING_PAYMENT_UNCONFIRMED` | variante por `quote.exceedsRemaining`: `false` "Tu envío anterior a {nombre} no se pudo confirmar. Si envías otro, {nombre} podría recibir los dos. ¿Le envío {recibe} pesos?"; `true` "Tu envío anterior a {nombre} no se pudo confirmar y este supera tu presupuesto. Si sigues, {nombre} podría recibir los dos. ¿Lo autorizas en tu billetera?" (B-6: solo `receiveAmount`, nunca el costo) |
-| `VOICE_NOT_VERIFIED` | "Por seguridad, escribe tu PIN en el teclado." (NO decir que la voz no coincide: no se le avisa a un impostor qué falló) |
+| `PENDING_PAYMENT_UNCONFIRMED` | "Tu envío anterior a {nombre} no se pudo confirmar. Si envías otro, {nombre} podría recibir los dos. ¿Le envío {recibe} {moneda}?" |
+| `PENDING_PAYMENT_UNCONFIRMED_OVERRUN` | "Tu envío anterior a {nombre} no se pudo confirmar y este supera tu presupuesto. Si sigues, {nombre} podría recibir los dos. ¿Lo autorizas en tu billetera?" |
 | `NEW_RECIPIENT` | "Es la primera vez que le envías a {nombre}. Por seguridad, escribe tu PIN en el teclado." |
 | `HIGH_AMOUNT` | "Es un monto alto. Por seguridad, escribe tu PIN en el teclado." |
-| `ALL_CHECKS_PASSED` | variante por `quote.exceedsRemaining`: `false` "¿Le envío {recibe} pesos a {nombre}?"; `true` "Supera tu presupuesto. ¿Lo autorizas en tu billetera?" |
-| `PIN_CORRECT` | igual que `ALL_CHECKS_PASSED` (mismas dos variantes) |
 | `PIN_WRONG` | "PIN incorrecto. Te quedan {n} intentos." (con n=1: "PIN incorrecto. Te queda 1 intento.") |
 | `PIN_ATTEMPTS_EXHAUSTED` | "No pude verificarte. No envié nada." |
 | `PIN_LOCKED` | "Por seguridad, el PIN está bloqueado. No envié nada." |
 | `PIN_INVALID_FORMAT` | "El PIN tiene entre 4 y 6 números. Escríbelo otra vez." |
-| `CONFIRMED` | no tiene `say` propio: el `say` lo define el resultado del pago ("Listo, le envié {recibe} pesos a {nombre}." al completarse; si el débito difiere se agrega "Te costó {costo} pesos." solo DESPUÉS de `COMPLETED`; en `PROCESSING`/`PAYMENT_PENDING` se muestra la carga, sin frase) |
-| `CONFIRMED_NEEDS_WALLET_AUTH` | "Te voy a llevar a tu billetera. Toca el botón que dice Aprobar." |
-| `USER_DECLINED` | "Listo, cancelé el envío." |
-| `REPLY_UNCLEAR_ASK_AGAIN` | "No te entendí. ¿Le envío {recibe} pesos a {nombre}? Di sí o no." |
 | `REPLY_UNCLEAR_REJECTED` | "No pude confirmar tu respuesta. No envié nada." |
 
-Reglas de las plantillas **[DECIDIDO]**:
+Reglas que se mantienen **[DECIDIDO]**:
 
-(a) Antes del "sí" solo se dice `receiveAmount` y nombre, nunca el costo (B-6 ratificado).
-(b) El `say` de un turno de PIN no repite dígitos y `transcript` es `null` (B-7).
-(c) `{recibe}` se formatea sin float (formato es-CO de `amount-parsing`, "20.000").
+(a) El motor nunca genera texto; las llaves `{…}` las inserta el orquestador con el `say` de Voz.
+(b) Antes del "sí" solo se dice `receiveAmount` y nombre, nunca el costo (B-6 ratificado).
+(c) El `say` de un turno de PIN no repite dígitos y `transcript` es `null` (B-7).
+(d) Los montos se formatean con `format_amount` de `amount-parsing` (sin float) y la palabra de la
+moneda sale de la configuración de Voz.
 
 #### Tabla de la fase COMMAND
 
@@ -226,7 +248,7 @@ En fase `COMMAND` el motor SHALL decidir con esta tabla ordenada:
 | 3 | `resolution.kind == "NOT_FOUND"` | `REASK` | `RECIPIENT_NOT_FOUND` | SEG-4 |
 | 4 | `resolution.kind == "CHOICE"` | `ASK_RECIPIENT` | `RECIPIENT_AMBIGUOUS` | SEG-4 |
 | 5 | `hasBudgetGrant == false` (llega con `quote == null`) | `REQUIRE_AUTH` | `NO_BUDGET_GRANT` | SEG-1 |
-| 6 | `pendingPayment` al mismo destinatario, `status: "PROCESSING"` y `now - pendingPayment.createdAt <= pendingWindowSeconds` | `REASK` (decidido con ML 1, 2026-10-16) | `PENDING_PAYMENT_SAME_RECIPIENT` | `turn-orchestration` |
+| 6 | `pendingPayment` al mismo destinatario, `status: "PROCESSING"` y `now - pendingPayment.createdAt <= pendingWindowSeconds` | `REASK` (decidido con ML 1, 2026-10-16) | `PENDING_PAYMENT_SAME_RECIPIENT` | `turn-orchestration`; **[DECIDIDO 2026-10-16, con Frontend: PAYMENT_PENDING visible, PR #2]** — camino normal mientras el pago está en `PAYMENT_PENDING` |
 | 6b | condición-marca: `pendingPayment` al mismo destinatario, `status: "PROCESSING"` y `now - pendingPayment.createdAt > pendingWindowSeconds` → marca `warnUnconfirmed = true` y SIGUE a 7/8/9 (no decide por sí sola; ver notas) | vía regla 9 o fase PIN | `PENDING_PAYMENT_UNCONFIRMED` | decisión de ML 2 (2026-10-16); falta comunicarlo a Pagos |
 | 7 | `voice.status != "VERIFIED"` (texto, no enrolado o bajo el umbral) | `ASK_PIN` | `VOICE_NOT_VERIFIED` | SEG-6, D3 |
 | 8 | `quote.exceedsRemaining == false` **y** (`contact.previouslyPaid == false` **o** monto ≥ `highAmountThreshold`) | `ASK_PIN` | `NEW_RECIPIENT` o `HIGH_AMOUNT` | SEG-6, D9 |
@@ -237,15 +259,16 @@ Notas:
 - Regla 6: "mismo destinatario" se compara por wallet address resuelta, no por alias, y "siga
 abierto" corresponde a `pendingPayment.status == "PROCESSING"` (decidido 2026-10-16 con ML 2, ML 1
 y Pagos). **Decidido con ML 1 (2026-10-16): `REASK`**, con
-`reason: PENDING_PAYMENT_SAME_RECIPIENT`. Con la **opción A de `PAYMENT_PENDING` [DECIDIDO por**
-**ML 2, 2026-10-16; comunicar a Pagos y Frontend]**, la regla 6 ya no es solo una guarda de
-respaldo: es el **camino real** después de que la UI se libera con "No pude confirmar tu envío…" —
-durante `pendingWindowSeconds` (120 s) un comando al mismo destinatario recibe `REASK`. Sigue
-también como defensa en profundidad (segunda pestaña, cliente que no bloquea, reintento de red).
-La plataforma muestra pantalla de carga mientras el pago está en `PROCESSING` y también en
-`PAYMENT_PENDING`; no permite interactuar, y el frontend envía en silencio el turno único de
-verificación (~20 s, B-2 ratificado). El estado `PAYMENT_PENDING` y su frase "Tu envío está en
-camino" **no se muestran nunca a la usuaria**.
+`reason: PENDING_PAYMENT_SAME_RECIPIENT`. **[DECIDIDO 2026-10-16, con Frontend: PAYMENT_PENDING**
+**visible, PR #2]** (revierte la opción A): el estado `PAYMENT_PENDING` SÍ se muestra a la usuaria,
+con la frase "Tu envío está en camino. No hace falta repetirlo." (catálogo de Voz), con micrófono y
+texto habilitados; el frontend envía en silencio un único turno de verificación (~20 s,
+`kind=verify_pending`, B-2 ratificado) y el estado cambia cuando llega la respuesta (la wallet/Open
+Payments resuelve si el pago se hizo o falló; lo que pasa después de esa verificación lo define
+`payments-client` (Pagos), no este spec). La regla 6 vuelve a ser el **camino normal** mientras el
+pago está en `PAYMENT_PENDING`: la usuaria puede hablar — dentro de `pendingWindowSeconds` (120 s)
+un comando al mismo destinatario recibe `REASK`; pasada la ventana aplica la 6b. Sigue también como
+defensa en profundidad (segunda pestaña, cliente que no bloquea, reintento de red).
 - Regla 6b (aviso post-ventana) **[DECIDIDO por ML 2, 2026-10-16; falta comunicarlo a Pagos]**:
 pasada la ventana, la regla 6b NO decide por sí sola — devolver `ASK_CONFIRM` aquí se saltaría el
 PIN de las reglas 7 y 8, contra D3/SEG-6 (un comando por texto siempre pide PIN). Es una
@@ -388,6 +411,7 @@ alimenta el `say` del orquestador. El motor MUST NOT validar el PIN ni acceder a
 | --- | --- |
 | `highAmountThreshold`: valor por defecto `null` (desactivado); se fija con la evidencia de los experimentos | **[ESPERA EXPERIMENTOS]** X-2/X-4 |
 | Valores de `minIntentConfidence` y `minTranscriptConfidence` (la regla 2b está decidida; por defecto `null` = desactivado en H1; el corte de transcripción MUST ser más flexible que el de intención) | **[PARA DECIDIR]** — rol Voz, tras su batería |
+| Voz agrega las 13 situaciones de `say` y cambia el texto de `PIN_KEYBOARD` | **[PENDIENTE de Voz]** — no bloquea al motor |
 
 ### pin-validation
 | Punto | Dueño / estado |

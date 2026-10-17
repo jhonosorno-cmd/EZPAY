@@ -16,7 +16,8 @@ decision/
                    # las fases COMMAND, PIN y CONFIRMATION (D1, D2)
   context_io.py    # parse_context(data: dict) -> Context (estricto, fail-closed) y
                    # decide_dict(data) -> {"decision", "reason"}
-  templates.py     # tabla reason -> plantilla de say (solo datos; el catálogo real es de ML 1)
+  say_map.py       # say_situation(decision, context): situación del catálogo de say de
+                   # Voz (solo el NOMBRE; los textos viven en voice/phrases.py, ML 1)
 pin/
   pin.py           # PinValidator (verify, reset_lock), verify_pin, reset_pin_lock,
                    # is_valid_pin, build_hash_spec
@@ -49,7 +50,7 @@ directorio de pruebas por corrida; `pytest` los toma todos de una vez.
 ## Cómo lo usa el orquestador
 
 ```python
-from decision import decide_dict, parse_context, InvalidContextError
+from decision import decide_dict, parse_context, InvalidContextError, say_situation
 from pin import verify_pin, reset_pin_lock
 
 # 1. turno de comando: el orquestador arma el dict del context (design.md,
@@ -59,6 +60,10 @@ result = decide_dict(data)  # -> {"decision": "ASK_PIN", "reason": "VOICE_NOT_VE
 # 2. turno de PIN: el resultado de verify_pin entra al context (context.pin)
 result = verify_pin(pin, session_id)  # PinResult(result, sessionFailures, remaining, locked)
 reset_pin_lock()                       # levanta el bloqueo global (script o ruta de admin)
+
+# 3. qué dice el sistema: el único catálogo de textos es el de Voz
+nombre = say_situation(decision, context)  # -> "PIN_KEYBOARD", "CONFIRM", None (CONFIRMED)...
+voice.phrases.say(voice.phrases.Situation(nombre), **params_del_turno)
 ```
 
 - **`decide_dict` / `parse_context`**: fail-closed. Cualquier desviación del
@@ -72,6 +77,15 @@ reset_pin_lock()                       # levanta el bloqueo global (script o rut
 - **`verify_pin`**: nunca devuelve `OK` sin `EZPAY_PIN_HASH` en `.env` (falla
   cerrado). El PIN no sale de Python: no va a logs, ni a `error.message`, ni
   fuera del backend.
+- **`say_situation`**: función pura que traduce `(Decision, Context)` al
+  NOMBRE de la situación del catálogo de Voz; los textos viven solo en
+  `voice/phrases.py`. `VOICE_SITUATIONS_EXISTING` son las 21 situaciones que
+  `Situation` ya tiene hoy; `VOICE_SITUATIONS_NEW` son las 13 que Voz agregará
+  (once comparten nombre con su `reason`). Devuelve `None` solo para
+  `CONFIRMED` (el `say` sale del resultado del pago). Una variante que necesita
+  la `quote` (`CONFIRM`/`AUTH_OVERRUN`, `PENDING_PAYMENT_UNCONFIRMED*`), el
+  `amountError` o las opciones de resolución y no los tiene levanta
+  `InvalidContextError`: contexto imposible, no se paga.
 - **Alta del PIN** (una vez, por configuración): `python scripts/make_pin_hash.py`
   lee el PIN con getpass y imprime `EZPAY_PIN_HASH=scrypt$N$r$p$sal_b64$hash_b64`
   para copiar a `.env` (ver `.env.example`). El PIN en claro no queda en ningún

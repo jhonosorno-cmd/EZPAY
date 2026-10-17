@@ -81,22 +81,29 @@ Además del `decision`, el motor SHALL devolver un `reason`: un código estable 
 - **WHEN** se invoca `decide` dos veces
 - **THEN** ambas invocaciones devuelven el mismo `{decision, reason}`
 
-### Requirement: Plantillas de `say` por reason
-Cada `reason` del enum SHALL tener exactamente una plantilla de `say` (con sus variantes) en el catálogo; el orquestador inserta los valores y el motor MUST NOT generar el texto. Un `reason` sin plantilla es un error de contrato. La tabla de plantillas está en `design.md`.
+### Requirement: Cada reason se asocia a una situación del catálogo único de Voz
+Cada `reason` (salvo `CONFIRMED`) SHALL traducirse a una situación del catálogo único de `say` de Voz (`api/voice/phrases.py`, enum `Situation`); el orquestador inserta los valores y llama a `say` de Voz, y el motor MUST NOT generar texto. Un `reason` sin situación es un error de contrato. La tabla `reason` → situación y los textos de las 13 situaciones nuevas están en `design.md`.
 
-#### Scenario: Todo reason del enum tiene exactamente una plantilla
+#### Scenario: Todo reason tiene situación (salvo CONFIRMED)
 
 - **GIVEN** cada `reason` del enum cerrado
-- **WHEN** el orquestador arma el `say` del turno
-- **THEN** cada `reason` tiene exactamente una plantilla (o sus variantes) en la tabla de este requisito, con los valores insertados por el orquestador
-- **AND** un `reason` sin plantilla es un error de contrato
-- **AND** ningún `say` lo genera un LLM ni contiene dígitos del PIN
+- **WHEN** el orquestador arma el `say` del turno traduciendo `reason` ⇒ `Situation`
+- **THEN** cada `reason` tiene una situación del catálogo único de Voz (o sus variantes), salvo `CONFIRMED`, que no tiene `say` propio porque el `say` sale del resultado del pago
+- **AND** un `reason` sin situación es un error de contrato
+- **AND** ningún `say` lo genera el LLM ni contiene dígitos del PIN
 
-**Plantillas del orquestador (no son reasons del motor):** el orquestador (Pagos) tiene plantillas
-propias que el motor no emite. La de pago sin resultado confirmado: "No pude confirmar tu envío.
-Revisa tu billetera en un momento." — se dice cuando la UI se libera tras la verificación de
-`PAYMENT_PENDING` sin resultado; **nunca** se dice "falló": un pago no se declara fallido por
-tiempo.
+#### Scenario: La traducción no depende de datos del request más allá de los campos del context que eligen la variante
+
+- **GIVEN** cualquier turno con `Decision` del motor
+- **WHEN** el orquestador traduce el `reason` a una `Situation`
+- **THEN** la traducción usa solo los campos del `context` que eligen la variante (p. ej. `quote.exceedsRemaining`, el número de `options` de la resolución, `intent.amountError`) y ningún otro dato del request
+- **AND** los valores que inserta el `say` (montos con `format_amount` sin float, la palabra de la moneda de la configuración de Voz) los aporta el orquestador, nunca el motor
+
+#### Scenario: Un reason sin situación es error de contrato
+
+- **GIVEN** un `reason` del enum sin situación en el catálogo de Voz
+- **WHEN** el orquestador arma el `say`
+- **THEN** es un error de contrato: no hay texto de respaldo generado al vuelo
 
 ### Requirement: Tabla de la fase COMMAND
 En fase `COMMAND` el motor SHALL evaluar en orden las reglas 1, 2, 2b, 3, 4, 5, 6, 7, 8 y 9, y devolver la primera que aplique. Condiciones, decisiones y `reason` de cada regla están en `design.md` (Tabla de la fase COMMAND).
@@ -231,19 +238,18 @@ En fase `COMMAND` el motor SHALL evaluar en orden las reglas 1, 2, 2b, 3, 4, 5, 
 - **THEN** el pago nuevo no se ejecuta mientras el pendiente siga abierto
 - **AND** la decisión es `REASK` con `reason: PENDING_PAYMENT_SAME_RECIPIENT` y el turno queda en `AWAITING_COMMAND`
 
-#### Scenario: Pago en proceso con la interfaz bloqueada (flujo normal)
+#### Scenario: La usuaria habla durante PAYMENT_PENDING (dentro de la ventana)
 
-- **GIVEN** un pago en `PROCESSING` o `PAYMENT_PENDING` y la plataforma mostrando la pantalla de carga sin permitir interacción (opción A)
-- **WHEN** el pago se completa o se rechaza por completo
-- **THEN** la usuaria vuelve a poder dar comandos y el `context` ya no trae un `pendingPayment` abierto
-- **AND** mientras la UI bloquea no llegan comandos: el motor no decide en ese periodo
+- **GIVEN** un pago en `PAYMENT_PENDING`, mostrado a la usuaria con la frase "Tu envío está en camino. No hace falta repetirlo." (catálogo de Voz), con micrófono y texto habilitados; el frontend ya envió su único turno silencioso de verificación (~20 s, `kind=verify_pending`, B-2 ratificado)
+- **WHEN** la usuaria da un comando al mismo destinatario a los 60 s (dentro de `pendingWindowSeconds` = 120 s)
+- **THEN** el motor devuelve `REASK` con `reason: PENDING_PAYMENT_SAME_RECIPIENT` (regla 6)
+- **AND** lo que pasa después de la verificación silenciosa lo define `payments-client` (Pagos), no este spec
 
-#### Scenario: UI liberada tras "no pude confirmar"
+#### Scenario: La usuaria habla durante PAYMENT_PENDING (pasada la ventana)
 
-- **GIVEN** la UI liberada después del aviso "No pude confirmar tu envío. Revisa tu billetera en un momento." con el pago aún sin resultado
-- **WHEN** la usuaria da un nuevo comando al mismo destinatario
-- **THEN** a los 60 s (dentro de `pendingWindowSeconds` = 120 s) el motor devuelve `REASK` con `reason: PENDING_PAYMENT_SAME_RECIPIENT`
-- **AND** a los 3 min (fuera de la ventana) la regla 6 no aplica y la decisión sale de las reglas siguientes
+- **GIVEN** el mismo pago aún sin resultado a los 3 min (fuera de `pendingWindowSeconds`)
+- **WHEN** la usuaria da un comando al mismo destinatario
+- **THEN** la regla 6 no aplica y la 6b marca `warnUnconfirmed`: la decisión sale de las reglas 7, 8 y 9 (con `PENDING_PAYMENT_UNCONFIRMED` si llega a la regla 9 o al `pin.result == "OK"`)
 
 #### Scenario: Pago pendiente a otro destinatario
 

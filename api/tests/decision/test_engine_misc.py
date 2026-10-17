@@ -1,8 +1,7 @@
 """Escenarios transversales de los dos specs: pureza, determinismo, enum de reasons,
-plantillas, anti-LLM y comparación de montos como enteros."""
+anti-LLM y comparación de montos como enteros."""
 import unittest
 
-from decision import templates
 from decision.engine import decide
 from decision.models import (
     Amount,
@@ -147,29 +146,6 @@ class LaDecisionIncluyeUnReason(unittest.TestCase):
 
     def test_el_enum_es_cerrado_de_28_valores(self):
         self.assertEqual(len(list(Reason)), 28)
-
-
-class PlantillasDeSayPorReason(unittest.TestCase):
-    def test_todo_reason_del_enum_tiene_exactamente_una_plantilla(self):
-        for reason in Reason:
-            self.assertIn(reason, templates.SAY_TEMPLATES, reason)
-            entry = templates.SAY_TEMPLATES[reason]
-            if reason is Reason.CONFIRMED:
-                self.assertIsNone(entry)
-                continue
-            if isinstance(entry, str):
-                self.assertTrue(entry.strip(), reason)
-            else:
-                self.assertTrue(entry, reason)
-                for variant in entry.values():
-                    self.assertIsInstance(variant, str)
-                    self.assertTrue(variant.strip(), reason)
-
-    def test_ninguna_plantilla_contiene_el_pin(self):
-        for reason, entry in templates.SAY_TEMPLATES.items():
-            strings = [entry] if isinstance(entry, str) else list((entry or {}).values())
-            for text in strings:
-                self.assertNotIn("{pin", text.lower(), reason)
 
 
 class ElMotorNoObedeceAlLLM(unittest.TestCase):
