@@ -196,6 +196,33 @@ def test_filtro_real_sobre_webm_cortado_con_tono_pasa():
     assert EnergySpeechFilter().has_speech(pcm) is True
 
 
+def test_filtro_ruido_de_cuarto_es_false():
+    # Cuarto de Sebastián: RMS 0,003 a 0,009 medido; se prueba con 0,012 para dejar margen (Whisper inventaba "Gracias.").
+    ruido = np.random.default_rng(1).normal(0.0, 0.012, SAMPLE_RATE * 4).astype("float32")
+    assert EnergySpeechFilter().has_speech(ruido) is False
+
+
+def test_filtro_un_clic_corto_en_silencio_es_false():
+    # El ESPACIO que detiene la grabación suena como un golpe de ~40 ms: no es habla.
+    audio = np.zeros(SAMPLE_RATE * 4, dtype="float32")
+    audio[SAMPLE_RATE:SAMPLE_RATE + int(SAMPLE_RATE * 0.04)] = 0.9
+    assert EnergySpeechFilter().has_speech(audio) is False
+
+
+def test_filtro_habla_corta_entre_silencios_es_true():
+    audio = np.random.default_rng(2).normal(0.0, 0.005, SAMPLE_RATE * 4).astype("float32")
+    t = np.arange(SAMPLE_RATE, dtype="float32") / SAMPLE_RATE
+    audio[SAMPLE_RATE:SAMPLE_RATE * 2] += (0.08 * np.sin(2 * np.pi * 220.0 * t)).astype("float32")
+    assert EnergySpeechFilter().has_speech(audio) is True
+
+
+def test_filtro_ruido_normalizado_a_pico_uno_tampoco_pasa_si_no_hay_tramo_largo():
+    # Un clic en un cuarto ruidoso, normalizado al pico, no debe contar como un tramo de habla.
+    audio = np.random.default_rng(3).normal(0.0, 0.003, SAMPLE_RATE * 4).astype("float32")
+    audio[SAMPLE_RATE:SAMPLE_RATE + 320] = 0.5
+    assert EnergySpeechFilter().has_speech(audio) is False
+
+
 # --- Groq (urllib con monkeypatch: sin red real)
 def test_groq_200_devuelve_el_texto(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "test-key")
