@@ -369,10 +369,11 @@ class MapeosDeSayConDesafio(unittest.TestCase):
 
 
 class SituacionesPendientesDeVoz(unittest.TestCase):
-    def test_las_cuatro_pendientes_estan_en_new_y_marca_el_set(self):
-        self.assertEqual(PENDING_VOZ_SITUATIONS,
-                         {"CONFIRM_CHALLENGE_OVERRUN", "CHALLENGE_FAILED"})
-        self.assertTrue(PENDING_VOZ_SITUATIONS.issubset(set(VOICE_SITUATIONS_NEW)))
+    def test_las_cuatro_del_desafio_estan_en_new_y_ya_no_hay_pendientes(self):
+        # Voz agregó CONFIRM_CHALLENGE_OVERRUN y CHALLENGE_FAILED (17 oct): el set queda vacío.
+        self.assertEqual(PENDING_VOZ_SITUATIONS, frozenset())
+        self.assertTrue({"CONFIRM_CHALLENGE", "CONFIRM_CHALLENGE_OVERRUN", "CHALLENGE_RETRY",
+                         "CHALLENGE_FAILED"}.issubset(set(VOICE_SITUATIONS_NEW)))
 
     def test_si_voz_agrega_una_pendiente_hay_que_quitarla_del_set(self):
         try:
