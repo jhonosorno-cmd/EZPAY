@@ -95,7 +95,7 @@ export class FakeOp implements OpenPaymentsPort {
 }
 
 // El fake recuerda el débito de cada quote.
-export function makeEnv(opts: { now?: () => number; path?: string } = {}) {
+export function makeEnv(opts: { now?: () => number; path?: string; log?: (line: Record<string, unknown>) => void } = {}) {
   const op = new FakeOp()
   const origQuote = op.createQuote.bind(op)
   op.createQuote = async (a: any) => {
@@ -104,7 +104,7 @@ export function makeEnv(opts: { now?: () => number; path?: string } = {}) {
     return q
   }
   const store = new Store(opts.path ?? ':memory:', new Cipher(KEY))
-  const svc = new PaymentsService(store, op, { now: opts.now ?? (() => op.now), inProgressWaitMs: 300, inProgressPollMs: 10 })
+  const svc = new PaymentsService(store, op, { now: opts.now ?? (() => op.now), inProgressWaitMs: 300, inProgressPollMs: 10, log: opts.log })
   return { op, store, svc }
 }
 

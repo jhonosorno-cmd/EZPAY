@@ -14,7 +14,8 @@
     "reset-db": "tsx scripts/reset-db.ts",
     "exp:weekly": "tsx --env-file=.env experiments/weekly-interval-and-token.ts",
     "exp:reject": "tsx --env-file=.env experiments/reject-redirect.ts",
-    "exp:cancel": "tsx --env-file=.env experiments/cancel-grant.ts"
+    "exp:cancel": "tsx --env-file=.env experiments/cancel-grant.ts",
+    "smoke": "tsx experiments/smoke-happy-path.ts"
   },
   "dependencies": {
     "@interledger/open-payments": "^7.4.0",
