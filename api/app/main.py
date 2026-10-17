@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import ASSET_CODE, ASSET_SCALE, CORS_ORIGIN, LOG_NAME, PLACEHOLDER_INTERACT_URL
+from .orchestrator import Deps, default_deps, handle_turn
 from .sessions import Session, SessionNotFound, SessionStore
 from .states import TurnState
 from . import turns as turn_logic
@@ -61,13 +62,28 @@ def _zero_amount(like: dict) -> dict:
     return {"value": "0", "assetCode": like.get("assetCode", ASSET_CODE), "assetScale": like.get("assetScale", ASSET_SCALE)}
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *,
+    transcriber=None,
+    verifier=None,
+    clock=None,
+    payments=None,
+    agenda_path=None,
+    pin_validator=None,
+) -> FastAPI:
+    """Crea la app. Los puertos y el cliente de Node son inyectables (las pruebas
+    usan dobles); sin adaptador el servidor arranca igual y degrada según el spec."""
     app = FastAPI(title="EZPAY api (esqueleto Contrato B)", docs_url=None, redoc_url=None)
     logger = _get_logger()
     store = SessionStore()
     budget: dict = {}
     enrolled = {"value": False}
+    deps: Deps = default_deps(transcriber=transcriber, verifier=verifier, clock=clock)
     app.state.session_store = store
+    app.state.deps = deps
+    app.state.payments = payments
+    app.state.agenda_path = agenda_path
+    app.state.pin_validator = pin_validator
 
     app.add_middleware(
         CORSMiddleware,
@@ -190,11 +206,8 @@ def create_app() -> FastAPI:
 
         session: Session = store.get(sessionId) if sessionId else store.create()
 
-        has_audio = audio is not None
-        if session.state is TurnState.AWAITING_PIN:
-            result = turn_logic.handle_pin_attempt(session) if not has_audio else turn_logic.handle_command(session, has_audio=True, text="")
-        else:
-            result = turn_logic.handle_command(session, has_audio, text)
+        audio_bytes = audio.file.read() if audio is not None else None
+        result = handle_turn(session, audio_bytes, text, deps)
         request.state.turn_state = result["state"]
         return result
 
