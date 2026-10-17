@@ -32,8 +32,10 @@ La llave privada de la wallet vive **fuera del repo**; solo se versiona `.env.ex
 
 ## Pendiente de verificar contra la Test Wallet
 
-- `cancelGrant` hoy revoca el token vía la `manage` URL (`token.revoke`); confirmar que alcanza.
-- URL de `getGrantSpentAmounts` (`<resourceServer>/outgoing-payments`); si falla se usa el gastado local.
+- `cancelGrant` usa GNAP `grant.cancel` (DELETE sobre la continue URI con el continue token);
+  verificado en la Test Wallet (`experiments/cancel-grant.md`): deja el access token inusable.
+- URL de `getGrantSpentAmounts` (`<resourceServer>`); si falla se usa el gastado local.
 - Cómo responde la wallet cuando el usuario rechaza (E3): hoy 401/403/400/404 en `continue` → `GRANT_REJECTED`.
-- `token.rotate` y su comportamiento con un token ya vencido (E4).
+- `token.rotate` y su comportamiento con un token ya vencido (E4): verificado
+  (`experiments/weekly-interval-and-token.md`, sección P4).
 - El caché de tokens no interactivos está en memoria (no en SQLite como sugiere D3).
