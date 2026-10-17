@@ -1,0 +1,23 @@
+# Types shared by Contract A and Contract B (docs/contratos-http-v1.md, "Tipos compartidos").
+# Only referenced from the contract files; it is not an API description by itself.
+components:
+  schemas:
+    Amount:
+      type: object
+      description: >-
+        Open Payments amount (CONV-1). `value` is a string of digits only: no decimals, sign or
+        separators. Example: 20.000 COP with scale 2 is `{ "value": "2000000" }`.
+      required: [value, assetCode, assetScale]
+      additionalProperties: false
+      properties:
+        value:
+          type: string
+          pattern: '^\d+$'
+          example: '2000000'
+        assetCode:
+          type: string
+          example: COP
+        assetScale:
+          type: integer
+          minimum: 0
+          example: 2

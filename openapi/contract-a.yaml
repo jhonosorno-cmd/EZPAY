@@ -1,0 +1,597 @@
+openapi: 3.0.3
+info:
+  title: EZPAY Contract A (Python -> Node)
+  version: 1.1.0
+  description: |
+    Internal contract between the Python backend and the Node payments service.
+    Source of truth: `docs/contratos-http-v1.md` plus `docs/contratos-cambios-propuestos-v1.1.md`
+    (ratified on 2026-10-16; v1.1 wins when they differ).
+
+    Conventions: every error is `{ error: { code, message } }` and clients decide by `code`
+    (CONV-2). Amounts are `{ value, assetCode, assetScale }` with digit-only `value` (CONV-1).
+    Any endpoint can answer `500 INTERNAL_ERROR`; Python treats it like `502 UPSTREAM_ERROR`.
+
+    Mock usage: `npm run mock:a`, then pick a response with the Prism header
+    `Prefer: code=<status>, example=<example-name>`.
+
+    Changes from v1.1 are tagged with `x-contract-change`.
+servers:
+  - url: http://localhost:4000
+    description: Node payments service (internal, never exposed to the browser)
+tags:
+  - name: grants
+  - name: quotes
+  - name: payments
+  - name: health
+paths:
+  /v1/grants:
+    post:
+      tags: [grants]
+      operationId: createGrant
+      summary: Create an interactive outgoing-payment grant with limits
+      description: |
+        Node generates and stores the `nonce` and asks for `actions: ["create", "read", "list"]`
+        on `outgoing-payment` (v1.1 A-3). `limit.interval` is optional: without it the limit is
+        a total cap.
+      x-contract-change: A-3
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGrantRequest'
+      responses:
+        '201':
+          description: Grant created, waiting for the user to approve it in the wallet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateGrantResponse'
+              example:
+                grantId: g_abc
+                status: PENDING
+                interactUrl: https://auth.interledger-test.dev/interact/example
+        '400':
+          description: Invalid amount or unresolvable wallet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                invalid-amount:
+                  value: { error: { code: INVALID_AMOUNT, message: El monto no es válido } }
+                invalid-wallet:
+                  value: { error: { code: INVALID_WALLET, message: La billetera no existe } }
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/grants/{grantId}:
+    parameters:
+      - $ref: '#/components/parameters/GrantId'
+    get:
+      tags: [grants]
+      operationId: getGrant
+      summary: Read a grant with its spent and remaining budget
+      responses:
+        '200':
+          description: Grant state. Node computes `spent` and `remaining`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Grant'
+              examples:
+                active:
+                  value:
+                    grantId: g_abc
+                    status: ACTIVE
+                    limit:
+                      debitAmount: { value: '20000000', assetCode: COP, assetScale: 2 }
+                      interval: R52/2026-10-16T00:00:00Z/P1W
+                    spent: { value: '2015000', assetCode: COP, assetScale: 2 }
+                    remaining: { value: '17985000', assetCode: COP, assetScale: 2 }
+                pending:
+                  value:
+                    grantId: g_abc
+                    status: PENDING
+                    limit:
+                      debitAmount: { value: '20000000', assetCode: COP, assetScale: 2 }
+                    spent: { value: '0', assetCode: COP, assetScale: 2 }
+                    remaining: { value: '20000000', assetCode: COP, assetScale: 2 }
+                rejected:
+                  value:
+                    grantId: g_abc
+                    status: REJECTED
+                    limit:
+                      debitAmount: { value: '20000000', assetCode: COP, assetScale: 2 }
+                    spent: { value: '0', assetCode: COP, assetScale: 2 }
+                    remaining: { value: '20000000', assetCode: COP, assetScale: 2 }
+                expired:
+                  value:
+                    grantId: g_abc
+                    status: EXPIRED
+                    limit:
+                      debitAmount: { value: '20000000', assetCode: COP, assetScale: 2 }
+                    spent: { value: '20000000', assetCode: COP, assetScale: 2 }
+                    remaining: { value: '0', assetCode: COP, assetScale: 2 }
+        '404':
+          $ref: '#/components/responses/GrantNotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [grants]
+      operationId: cancelGrant
+      summary: Cancel a grant (one-off grant for an over-limit payment)
+      description: |
+        Idempotent: cancelling an already cancelled grant answers `204` again. On
+        `502 UPSTREAM_ERROR` the grant is still left `EXPIRED` locally.
+        Whether this endpoint stays depends on the weekly-expiry experiment
+        (docs/decisiones.md, decision #1).
+      x-contract-change: A-1
+      responses:
+        '204':
+          description: Grant cancelled (`EXPIRED`).
+        '404':
+          $ref: '#/components/responses/GrantNotFound'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/grants/{grantId}/continue:
+    parameters:
+      - $ref: '#/components/parameters/GrantId'
+    post:
+      tags: [grants]
+      operationId: continueGrant
+      summary: Continue a grant after the user approved it in the wallet
+      description: |
+        Node validates the hash as
+        `base64(sha256(clientNonce + "\n" + interactNonce + "\n" + interactRef + "\n" + grantEndpointUri))`
+        before calling `grant.continue`. Python forwards `interactRef` and `hash` verbatim.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [interactRef, hash]
+              properties:
+                interactRef: { type: string }
+                hash: { type: string }
+      responses:
+        '200':
+          description: Grant is now ACTIVE.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContinueGrantResponse'
+              example:
+                grantId: g_abc
+                status: ACTIVE
+                limit:
+                  debitAmount: { value: '20000000', assetCode: COP, assetScale: 2 }
+                  interval: R52/2026-10-16T00:00:00Z/P1W
+                remaining: { value: '20000000', assetCode: COP, assetScale: 2 }
+        '400':
+          description: The hash does not match; the grant is not continued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                invalid-hash:
+                  value: { error: { code: INVALID_HASH, message: El hash de la autorización no coincide } }
+        '403':
+          description: The user rejected the grant in the wallet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                grant-rejected:
+                  value: { error: { code: GRANT_REJECTED, message: La autorización fue rechazada } }
+        '404':
+          $ref: '#/components/responses/GrantNotFound'
+        '409':
+          description: The grant is not PENDING (already continued or expired).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                grant-not-pending:
+                  value: { error: { code: GRANT_NOT_PENDING, message: El grant ya no está pendiente } }
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/quotes:
+    post:
+      tags: [quotes]
+      operationId: createQuote
+      summary: Create the incoming payment and a quote from the user's wallet
+      description: |
+        `receiveAmount` is what the recipient gets ("envíale 20 mil" = le llegan 20 mil).
+        `exceedsRemaining` is the preventive signal: true when `debitAmount` is strictly greater
+        than the grant's `remaining`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [grantId, receiver, receiveAmount]
+              properties:
+                grantId: { type: string, example: g_abc }
+                receiver:
+                  type: string
+                  description: Recipient wallet address.
+                  example: https://ilp.interledger-test.dev/laura
+                receiveAmount:
+                  $ref: 'components.yaml#/components/schemas/Amount'
+      responses:
+        '201':
+          description: Quote created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Quote'
+              examples:
+                within-budget:
+                  value:
+                    quoteId: q_123
+                    debitAmount: { value: '2015000', assetCode: COP, assetScale: 2 }
+                    receiveAmount: { value: '2000000', assetCode: COP, assetScale: 2 }
+                    expiresAt: '2026-10-16T15:04:05Z'
+                    exceedsRemaining: false
+                exceeds-remaining:
+                  value:
+                    quoteId: q_124
+                    debitAmount: { value: '30150000', assetCode: COP, assetScale: 2 }
+                    receiveAmount: { value: '30000000', assetCode: COP, assetScale: 2 }
+                    expiresAt: '2026-10-16T15:04:05Z'
+                    exceedsRemaining: true
+        '400':
+          description: Invalid amount or invalid recipient (unresolvable wallet or asset mismatch).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                invalid-amount:
+                  value: { error: { code: INVALID_AMOUNT, message: El monto no es válido } }
+                invalid-receiver:
+                  value: { error: { code: INVALID_RECEIVER, message: El destinatario no es válido } }
+        '401':
+          $ref: '#/components/responses/GrantInvalid'
+        '404':
+          $ref: '#/components/responses/GrantNotFound'
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/payments:
+    post:
+      tags: [payments]
+      operationId: createPayment
+      summary: Create an outgoing payment from a quote (idempotent)
+      description: |
+        Python rules for `Idempotency-Key`: a new key per quote; on `502` or
+        `409 PAYMENT_IN_PROGRESS` retry with the **same** key and `quoteId`. `403 LIMIT_EXCEEDED`
+        and `401 GRANT_INVALID` trigger re-authorization.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: UUID, one per payment intent (per quote).
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quoteId]
+              properties:
+                quoteId: { type: string, example: q_123 }
+      responses:
+        '201':
+          description: Payment created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+              examples:
+                completed:
+                  value:
+                    paymentId: p_789
+                    status: COMPLETED
+                    debitAmount: { value: '2015000', assetCode: COP, assetScale: 2 }
+                    sentAmount: { value: '2015000', assetCode: COP, assetScale: 2 }
+                processing:
+                  value:
+                    paymentId: p_789
+                    status: PROCESSING
+                    debitAmount: { value: '2015000', assetCode: COP, assetScale: 2 }
+                    sentAmount: { value: '0', assetCode: COP, assetScale: 2 }
+                failed:
+                  value:
+                    paymentId: p_789
+                    status: FAILED
+                    debitAmount: { value: '2015000', assetCode: COP, assetScale: 2 }
+                    sentAmount: { value: '0', assetCode: COP, assetScale: 2 }
+        '400':
+          description: The `Idempotency-Key` header is missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                idempotency-key-required:
+                  value: { error: { code: IDEMPOTENCY_KEY_REQUIRED, message: Falta el header Idempotency-Key } }
+        '401':
+          $ref: '#/components/responses/GrantInvalid'
+        '403':
+          description: The quote's `debitAmount` exceeds the grant's remaining budget.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                limit-exceeded:
+                  value: { error: { code: LIMIT_EXCEEDED, message: El pago supera el presupuesto restante } }
+        '404':
+          description: Unknown quote, or a quote already paid / with an uncertain payment under another key.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                quote-not-found:
+                  value: { error: { code: QUOTE_NOT_FOUND, message: La cotización no existe o ya se usó } }
+        '409':
+          description: Expired quote (re-quoting is safe) or the first attempt is still in progress.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                quote-expired:
+                  value: { error: { code: QUOTE_EXPIRED, message: La cotización venció } }
+                payment-in-progress:
+                  value: { error: { code: PAYMENT_IN_PROGRESS, message: El pago sigue en curso } }
+        '422':
+          description: The same key was used with a different `quoteId`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                idempotency-key-reused:
+                  value: { error: { code: IDEMPOTENCY_KEY_REUSED, message: La clave ya se usó con otra cotización } }
+        '502':
+          $ref: '#/components/responses/UpstreamError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/payments/{paymentId}:
+    parameters:
+      - name: paymentId
+        in: path
+        required: true
+        schema: { type: string }
+        example: p_789
+    get:
+      tags: [payments]
+      operationId: getPayment
+      summary: Read the payment state (Python polls this until COMPLETED or FAILED)
+      responses:
+        '200':
+          description: Payment state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentState'
+              examples:
+                completed:
+                  value:
+                    paymentId: p_789
+                    status: COMPLETED
+                    sentAmount: { value: '2015000', assetCode: COP, assetScale: 2 }
+                processing:
+                  value:
+                    paymentId: p_789
+                    status: PROCESSING
+                    sentAmount: { value: '0', assetCode: COP, assetScale: 2 }
+                failed:
+                  value:
+                    paymentId: p_789
+                    status: FAILED
+                    sentAmount: { value: '0', assetCode: COP, assetScale: 2 }
+        '404':
+          description: Unknown payment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+              examples:
+                payment-not-found:
+                  value: { error: { code: PAYMENT_NOT_FOUND, message: El pago no existe } }
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /v1/health:
+    get:
+      tags: [health]
+      operationId: health
+      summary: Health check (does not call Open Payments)
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean }
+              example: { ok: true }
+components:
+  parameters:
+    GrantId:
+      name: grantId
+      in: path
+      required: true
+      schema: { type: string }
+      example: g_abc
+  responses:
+    GrantNotFound:
+      description: Unknown grant.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          examples:
+            grant-not-found:
+              value: { error: { code: GRANT_NOT_FOUND, message: El grant no existe } }
+    GrantInvalid:
+      description: The grant is not ACTIVE or its token is invalid. Python requests a new grant.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          examples:
+            grant-invalid:
+              value: { error: { code: GRANT_INVALID, message: El grant no es válido } }
+    UpstreamError:
+      description: Timeout, network error or 5xx from Open Payments.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          examples:
+            upstream-error:
+              value: { error: { code: UPSTREAM_ERROR, message: Open Payments no respondió } }
+    InternalError:
+      description: Unexpected error. Python treats it like `UPSTREAM_ERROR`.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          examples:
+            internal-error:
+              value: { error: { code: INTERNAL_ERROR, message: Error interno } }
+  schemas:
+    ErrorCode:
+      type: string
+      description: Decide by `code`, never by `message` (CONV-2).
+      enum:
+        - INVALID_AMOUNT
+        - INVALID_WALLET
+        - INVALID_RECEIVER
+        - INVALID_HASH
+        - GRANT_REJECTED
+        - GRANT_NOT_FOUND
+        - GRANT_NOT_PENDING
+        - GRANT_INVALID
+        - LIMIT_EXCEEDED
+        - QUOTE_NOT_FOUND
+        - QUOTE_EXPIRED
+        - PAYMENT_NOT_FOUND
+        - PAYMENT_IN_PROGRESS
+        - IDEMPOTENCY_KEY_REQUIRED
+        - IDEMPOTENCY_KEY_REUSED
+        - UPSTREAM_ERROR
+        - INTERNAL_ERROR
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { $ref: '#/components/schemas/ErrorCode' }
+            message: { type: string }
+    GrantStatus:
+      type: string
+      enum: [PENDING, ACTIVE, REJECTED, EXPIRED]
+    Limit:
+      type: object
+      required: [debitAmount]
+      properties:
+        debitAmount:
+          $ref: 'components.yaml#/components/schemas/Amount'
+        interval:
+          type: string
+          description: ISO 8601 repeating interval. Optional; without it the limit is a total cap.
+          example: R52/2026-10-16T00:00:00Z/P1W
+    CreateGrantRequest:
+      type: object
+      required: [userId, walletAddress, limit, finishUri]
+      properties:
+        userId: { type: string, example: demo-user }
+        walletAddress:
+          type: string
+          example: https://ilp.interledger-test.dev/marta
+        limit: { $ref: '#/components/schemas/Limit' }
+        finishUri:
+          type: string
+          example: http://localhost:5173/grant-callback
+    CreateGrantResponse:
+      type: object
+      required: [grantId, status, interactUrl]
+      properties:
+        grantId: { type: string }
+        status: { $ref: '#/components/schemas/GrantStatus' }
+        interactUrl: { type: string }
+    ContinueGrantResponse:
+      type: object
+      required: [grantId, status, limit, remaining]
+      properties:
+        grantId: { type: string }
+        status: { $ref: '#/components/schemas/GrantStatus' }
+        limit: { $ref: '#/components/schemas/Limit' }
+        remaining:
+          $ref: 'components.yaml#/components/schemas/Amount'
+    Grant:
+      type: object
+      required: [grantId, status, limit, spent, remaining]
+      properties:
+        grantId: { type: string }
+        status: { $ref: '#/components/schemas/GrantStatus' }
+        limit: { $ref: '#/components/schemas/Limit' }
+        spent:
+          $ref: 'components.yaml#/components/schemas/Amount'
+        remaining:
+          $ref: 'components.yaml#/components/schemas/Amount'
+    Quote:
+      type: object
+      required: [quoteId, debitAmount, receiveAmount, expiresAt, exceedsRemaining]
+      properties:
+        quoteId: { type: string }
+        debitAmount:
+          $ref: 'components.yaml#/components/schemas/Amount'
+        receiveAmount:
+          $ref: 'components.yaml#/components/schemas/Amount'
+        expiresAt: { type: string, format: date-time }
+        exceedsRemaining: { type: boolean }
+    PaymentStatus:
+      type: string
+      enum: [PROCESSING, COMPLETED, FAILED]
+    Payment:
+      type: object
+      required: [paymentId, status, debitAmount, sentAmount]
+      properties:
+        paymentId: { type: string }
+        status: { $ref: '#/components/schemas/PaymentStatus' }
+        debitAmount:
+          $ref: 'components.yaml#/components/schemas/Amount'
+        sentAmount:
+          $ref: 'components.yaml#/components/schemas/Amount'
+    PaymentState:
+      type: object
+      required: [paymentId, status, sentAmount]
+      properties:
+        paymentId: { type: string }
+        status: { $ref: '#/components/schemas/PaymentStatus' }
+        sentAmount:
+          $ref: 'components.yaml#/components/schemas/Amount'
