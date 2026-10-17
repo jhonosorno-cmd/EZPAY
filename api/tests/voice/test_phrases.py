@@ -34,7 +34,7 @@ def test_error_de_monto_repregunta(situation, kwargs):
     (S.AMOUNT_AMBIGUOUS, "No me quedó claro el monto. ¿Me lo dices otra vez?"),
     (S.INVALID_AMOUNT, "Ese monto no es válido. ¿Cuánto quieres enviar?"),
     (S.CANCELLED, "Listo, cancelé el envío."),
-    (S.PIN_KEYBOARD, "Escribe tu PIN en el teclado."),
+    (S.PIN_KEYBOARD, "Por seguridad, escribe tu PIN en el teclado."),
     (S.AUTH_BUDGET, "Para empezar, autoriza tu presupuesto en tu billetera. Toca el botón que dice Aprobar."),
     (S.AUTH_OVERRUN, "Supera tu presupuesto. ¿Lo autorizas en tu billetera?"),
     (S.AUTH_REDIRECT, "Te voy a llevar a tu billetera. Toca el botón que dice Aprobar."),
@@ -82,10 +82,21 @@ def test_confirm_unclear():
 
 
 def test_completed_sin_y_con_costo():
+    # El costo es débito - recibido (payments-client, "Monto que se dice en el recibo del pago"): 150, no 20.150.
     assert say(S.COMPLETED, amount=A20, name="Laura") == "Listo, le envié 20.000 pesos a Laura."
     assert say(S.COMPLETED, amount=A20, name="Laura", debit=A20) == "Listo, le envié 20.000 pesos a Laura."
     assert say(S.COMPLETED, amount=A20, name="Laura", debit=Amount("2015000", "COP", 2)) == (
-        "Listo, le envié 20.000 pesos a Laura. Te costó 20.150 pesos.")
+        "Listo, le envié 20.000 pesos a Laura. Te costó 150 pesos.")
+
+
+def test_costo_con_centavos_y_sin_float():
+    assert say(S.COMPLETED, amount=A20, name="Laura", debit=Amount("2000050", "COP", 2)) == (
+        "Listo, le envié 20.000 pesos a Laura. Te costó 0,50 pesos.")
+
+
+def test_debito_menor_que_lo_recibido_es_error_del_programa():
+    with pytest.raises(ValueError):
+        say(S.COMPLETED, amount=A20, name="Laura", debit=Amount("1999999", "COP", 2))
 
 
 def test_monto_con_centavos():
@@ -135,7 +146,80 @@ def test_ninguna_plantilla_queda_sin_llenar():
         S.TOO_MANY_DECIMALS: {"scale": 2}, S.NOT_FOUND: {"spoken": "Pedro"}, S.CHOICE: {"names": ["A", "B"]},
         S.NEAR: {"name": "Laura"}, S.CONFIRM: {"amount": A20, "name": "Laura"},
         S.CONFIRM_UNCLEAR: {"amount": A20, "name": "Laura"}, S.COMPLETED: {"amount": A20, "name": "Laura"},
+        S.NEW_RECIPIENT: {"name": "Laura"}, S.PENDING_PAYMENT_SAME_RECIPIENT: {"name": "Laura"},
+        S.PENDING_PAYMENT_UNCONFIRMED: {"amount": A20, "name": "Laura"},
+        S.PENDING_PAYMENT_UNCONFIRMED_OVERRUN: {"name": "Laura"}, S.PIN_WRONG: {"remaining": 2},
     }
     for situation in Situation:
         text = say(situation, **samples.get(situation, {}))
         assert text and "{" not in text and "}" not in text
+
+
+# --- Catálogo único de `say` (decisión de Daniel, ML 2, 2026-10-16; textos en add-decision-engine/design.md)
+NEW_SITUATIONS = [
+    "INTENT_AMBIGUOUS", "INTENT_LOW_CONFIDENCE", "TRANSCRIPT_LOW_CONFIDENCE", "PENDING_PAYMENT_SAME_RECIPIENT",
+    "PENDING_PAYMENT_UNCONFIRMED", "PENDING_PAYMENT_UNCONFIRMED_OVERRUN", "NEW_RECIPIENT", "HIGH_AMOUNT",
+    "PIN_WRONG", "PIN_ATTEMPTS_EXHAUSTED", "PIN_LOCKED", "PIN_INVALID_FORMAT", "REPLY_UNCLEAR_REJECTED",
+]
+
+
+def test_las_13_situaciones_nuevas_existen_con_el_nombre_del_reason():
+    assert len(NEW_SITUATIONS) == 13
+    assert set(NEW_SITUATIONS) <= {s.value for s in Situation}
+    assert len(Situation) == 21 + 13
+
+
+@pytest.mark.parametrize("situation,text", [
+    (S.INTENT_AMBIGUOUS, "No me quedó claro. Dime un solo monto y un solo destinatario."),
+    (S.INTENT_LOW_CONFIDENCE, "No te entendí bien. ¿Me lo repites?"),
+    (S.TRANSCRIPT_LOW_CONFIDENCE, "No te escuché bien. ¿Me lo repites?"),
+    (S.HIGH_AMOUNT, "Es un monto alto. Por seguridad, escribe tu PIN en el teclado."),
+    (S.PIN_ATTEMPTS_EXHAUSTED, "No pude verificarte. No envié nada."),
+    (S.PIN_LOCKED, "Por seguridad, el PIN está bloqueado. No envié nada."),
+    (S.PIN_INVALID_FORMAT, "El PIN tiene entre 4 y 6 números. Escríbelo otra vez."),
+    (S.REPLY_UNCLEAR_REJECTED, "No pude confirmar tu respuesta. No envié nada."),
+])
+def test_situaciones_nuevas_sin_parametros(situation, text):
+    assert say(situation) == text
+
+
+def test_situaciones_nuevas_con_nombre():
+    assert say(S.NEW_RECIPIENT, name="Laura") == (
+        "Es la primera vez que le envías a Laura. Por seguridad, escribe tu PIN en el teclado.")
+    assert say(S.PENDING_PAYMENT_SAME_RECIPIENT, name="Laura") == "Tu envío anterior a Laura aún no termina. Espera un momento."
+    assert say(S.PENDING_PAYMENT_UNCONFIRMED_OVERRUN, name="Laura") == (
+        "Tu envío anterior a Laura no se pudo confirmar y este supera tu presupuesto. "
+        "Si sigues, Laura podría recibir los dos. ¿Lo autorizas en tu billetera?")
+
+
+def test_pago_anterior_sin_confirmar_dice_solo_lo_que_recibe_y_la_moneda_de_la_configuracion():
+    assert say(S.PENDING_PAYMENT_UNCONFIRMED, amount=A20, name="Laura") == (
+        "Tu envío anterior a Laura no se pudo confirmar. Si envías otro, Laura podría recibir los dos. "
+        "¿Le envío 20.000 pesos?")
+
+
+@pytest.mark.parametrize("remaining,text", [
+    (2, "PIN incorrecto. Te quedan 2 intentos."),
+    (1, "PIN incorrecto. Te queda 1 intento."),
+])
+def test_pin_wrong_con_intentos_restantes(remaining, text):
+    assert say(S.PIN_WRONG, remaining=remaining) == text
+
+
+@pytest.mark.parametrize("situation,kwargs", [
+    (S.PIN_WRONG, {}), (S.PIN_WRONG, {"remaining": 0}), (S.PIN_WRONG, {"remaining": -1}),
+    (S.PIN_WRONG, {"remaining": True}), (S.PIN_WRONG, {"remaining": "2"}), (S.PIN_WRONG, {"remaining": 2, "pin": "1234"}),
+    (S.NEW_RECIPIENT, {}), (S.NEW_RECIPIENT, {"name": ""}), (S.NEW_RECIPIENT, {"name": None}),
+    (S.PENDING_PAYMENT_SAME_RECIPIENT, {}), (S.PENDING_PAYMENT_UNCONFIRMED, {"name": "Laura"}),
+    (S.PENDING_PAYMENT_UNCONFIRMED, {"amount": A20}), (S.PENDING_PAYMENT_UNCONFIRMED_OVERRUN, {}),
+    (S.PENDING_PAYMENT_UNCONFIRMED_OVERRUN, {"name": "Laura", "amount": A20}),
+    (S.PIN_LOCKED, {"remaining": 1}), (S.HIGH_AMOUNT, {"name": "Laura"}),
+])
+def test_parametros_invalidos_de_las_situaciones_nuevas(situation, kwargs):
+    with pytest.raises(ValueError):
+        say(situation, **kwargs)
+
+
+def test_ningun_texto_del_pin_repite_digitos_del_pin():
+    for situation in (S.PIN_KEYBOARD, S.PIN_LOCKED, S.PIN_ATTEMPTS_EXHAUSTED):
+        assert not any(c.isdigit() for c in say(situation))
