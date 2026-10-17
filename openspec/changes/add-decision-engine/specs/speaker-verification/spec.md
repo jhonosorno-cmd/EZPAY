@@ -7,7 +7,8 @@ del usuario, decide si el hablante es el usuario y produce el `context.voice` qu
 (`decision-engine`). La voz es una verificación adicional, no la barrera principal: si una
 grabación del usuario pasa como `VERIFIED`, con destinatario conocido y dentro del presupuesto el
 motor NO pide PIN — contra una grabación protegen el tope del grant de presupuesto (SEG-1/SEG-5),
-el "sí" hablado (SEG-2) y `highAmountThreshold` (SEG-6, valor por decidir en X-4). El PIN protege
+el "sí" hablado (SEG-2) y `highAmountThreshold` (SEG-6, 100.000 COP decididos en X-4,
+2026-10-17). El PIN protege
 cuando la voz no se verifica (D3). Todo corre en Python dentro del backend, no en un servicio
 aparte.
 
@@ -30,14 +31,16 @@ producir exactamente el `context.voice` que espera el motor: con `VERIFIED`/`BEL
 #### Scenario: Presupuesto de latencia
 
 - **GIVEN** el backend con el modelo ECAPA cargado en CPU
-- **WHEN** se verifica la voz de un comando de 30 s o menos
-- **THEN** responde en menos de 1 s **[VERIFICAR]** (medido: ~0,4 s por verificación y ~0,4 GB de RAM en reposo — experimentos ML 2, 15 oct)
+- **WHEN** se verifica la voz de un comando de hasta 10 s
+- **THEN** responde en menos de 1 s (**[DECIDIDO 2026-10-17]**, x0_entorno: mediana 0,16 s con 3 s de audio, 0,28 s con 5 s y 0,47 s con 10 s)
+- **AND** un comando de 30 s tarda ~1,5 s: dato documentado, no requisito
 
 ### Requirement: Carga del modelo al arrancar
 
 El modelo ECAPA SHALL cargarse una sola vez al iniciar el backend, no en la primera petición. Si
 la carga falla, toda verificación SHALL devolver `status: "NOT_AVAILABLE"` con `score: null` y el
-arranque SHALL dejar un aviso en el log sin datos biométricos (PRIV-4).
+arranque SHALL dejar un aviso en el log sin datos biométricos (PRIV-4). Cargó sin red en 0,3 s
+con 383 MB de RAM (x0_entorno, 16 oct; **[DECIDIDO 2026-10-17]**).
 
 #### Scenario: Primer comando sin espera de carga
 
@@ -86,6 +89,9 @@ ir acompañado de una recalibración del umbral de verificación y del corte de 
 - **WHEN** se procesa audio
 - **THEN** no es válido sin recalibrar el umbral de verificación y el corte de consistencia (H3)
 
+Nota (X-6, 17 oct): comparó el VAD de SpeechBrain y no mejoró la separación: se mantiene
+`trim_silence` **[DECIDIDO 2026-10-17]**.
+
 ### Requirement: Decisión por umbral configurable
 
 La similitud SHALL medirse como coseno entre el embedding del comando y la huella del usuario, y
@@ -96,7 +102,7 @@ SHALL ser en el borde: `score >= umbral` ⇒ `VERIFIED` y `score < umbral` ⇒ `
 
 #### Scenario: Misma persona pasa el umbral
 
-- **GIVEN** la voz del usuario enrolado (coseno 0.57–0.73 medido, experimentos ML 2, 15 oct)
+- **GIVEN** la voz del usuario enrolado (genuino mínimo 0.508 con la huella promedio — experimentos ML 2, 17 oct, 3 personas; rangos 0.57–0.73 del 15 oct)
 - **WHEN** se verifica con umbral 0.45
 - **THEN** `status` es `VERIFIED` con su `score`
 
@@ -108,18 +114,24 @@ SHALL ser en el borde: `score >= umbral` ⇒ `VERIFIED` y `score < umbral` ⇒ `
 
 #### Scenario: Otra persona no pasa el umbral
 
-- **GIVEN** la voz de otra persona (coseno 0.16–0.23 medido)
+- **GIVEN** la voz de otra persona (impostor máximo 0.405 con la huella promedio — experimentos ML 2, 17 oct, 3 personas)
 - **WHEN** se verifica con umbral 0.45
 - **THEN** `status` es `BELOW_THRESHOLD` con su `score`
 - **AND** el motor pide PIN (regla 7, SEG-6/D3)
 
 #### Scenario: Clip demasiado corto
 
-- **GIVEN** un comando cuya voz útil (tras recortar silencios) dura menos de `minVerifySeconds` (configurable; valor provisional 3 s **[VERIFICAR con X-2]**: a 1,5 s los puntajes se solapan y a 3 s se separan — experimentos ML 2, 15 oct)
+- **GIVEN** un comando cuya voz útil (tras recortar silencios) dura menos de `minVerifySeconds` (configurable; **2,0 s** **[DECIDIDO 2026-10-17]**: 1,0 s ⇒ 11 falsos rechazados, 1,5 s ⇒ 4, 2,0/2,5/3,0 s ⇒ 0 falsos aceptados y 0 falsos rechazados — experimentos ML 2, 17 oct, 3 personas)
 - **WHEN** se verifica
 - **THEN** `verify` devuelve `NOT_AVAILABLE`: no hay audio suficiente para decidir (NO `BELOW_THRESHOLD`, que significaría "otra persona")
 - **AND** el motor pide PIN
 - **AND** D4: la verificación corre solo sobre el comando, nunca sobre el "sí"
+
+Nota (experimentos ML 2, 17 oct, 3 personas; **[DECIDIDO 2026-10-17]**): el umbral se mantiene en
+**0.45** — queda entre el impostor máximo 0.405 y el genuino mínimo 0.508 (con la huella promedio,
+estrategia A); a 0.55 hubo 3 falsos rechazados. Sigue configurable y se recalibra en H3 con el
+micrófono de solapa. Riesgo: el margen (+0.104) es pequeño y la muestra es de 3 personas — repetir
+el experimento con más personas queda en los puntos abiertos del story.
 
 ### Requirement: Una verificación a la vez
 
@@ -157,7 +169,7 @@ se verifica (D3).
 El componente MUST NOT guardar audio crudo: solo embeddings (PRIV-1). Ni audio, ni embeddings, ni
 puntajes SHALL aparecer en logs ni en `error.message` (PRIV-4). La huella SHALL poder borrarse por
 script (PRIV-3): tras borrar, `verify` trata al usuario como no enrolado. El modelo MUST cargar sin
-internet (pesos en caché local) **[VERIFICAR]**.
+internet (pesos en caché local) **[DECIDIDO 2026-10-17]** (x0_entorno, 16 oct).
 
 #### Scenario: Solo se guardan embeddings
 
@@ -182,19 +194,22 @@ internet (pesos en caché local) **[VERIFICAR]**.
 
 - **GIVEN** una máquina sin acceso a internet
 - **WHEN** el backend arranca
-- **THEN** el modelo carga desde la caché local de pesos **[VERIFICAR]**
+- **THEN** el modelo carga desde la caché local de pesos (x0_entorno, 16 oct: sin red en 0,3 s, 383 MB de RAM)
 
 ### Requirement: Fuera de alcance: anti-spoofing
 
 H2 MUST NOT incluir anti-spoofing (X-4): una grabación del usuario podría pasar la verificación.
 Es un riesgo conocido y documentado: contra una grabación protegen el tope del grant de
 presupuesto (SEG-1/SEG-5), el "sí" hablado (SEG-2) y `highAmountThreshold` (SEG-6, valor de X-4);
-el motor NO pide PIN si pasa con destinatario conocido y dentro del presupuesto.
+el motor NO pide PIN si pasa con destinatario conocido y dentro del presupuesto (evidencia:
+experimentos ML 2, 17 oct — 1 de 3 reproducciones desde el celular pasó como `VERIFIED` con la
+huella promedio).
 
 #### Scenario: Riesgo documentado
 
 - **GIVEN** un atacante con una grabación del usuario, destinatario conocido y presupuesto suficiente
 - **WHEN** se verifica y la grabación pasa como `VERIFIED`
 - **THEN** el motor NO pide PIN: la decisión sale de las reglas restantes
-- **AND** contra la grabación protegen el tope del grant de presupuesto (SEG-1/SEG-5), el "sí" hablado (SEG-2) y `highAmountThreshold` (SEG-6, valor por decidir en X-4)
+- **AND** contra la grabación protegen el tope del grant de presupuesto (SEG-1/SEG-5), el "sí" hablado (SEG-2) y `highAmountThreshold` (SEG-6, 100.000 COP — X-4, 2026-10-17)
+- **AND** evidencia: de 3 reproducciones desde el celular, 1 pasó (coseno 0.506; los otros 0.338 y 0.417) — experimentos ML 2, 17 oct, 3 personas
 - **AND** es un riesgo conocido y documentado (X-4, fuera de alcance en H2)
