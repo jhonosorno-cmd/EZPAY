@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.bateria import (CAMPOS, FRASES, agregar_fila, evaluar, ruta_por_defecto)
+from scripts.bateria import (CAMPOS, FRASES, agregar_fila, evaluar, ruta_por_defecto, seleccionar_frases)
 
 
 def esperado(decir):
@@ -90,3 +90,25 @@ def test_el_csv_no_guarda_audio_ni_llaves(tmp_path):
 def test_hay_frases_de_todos_los_tipos_y_sin_duplicados():
     assert {f.tipo for f in FRASES} >= {"pago", "afirmativo", "negativo", "poco_clara", "silencio"}
     assert len({f.decir for f in FRASES}) == len(FRASES)
+
+
+# --- --frases: elegir cuáles frases pedir
+def test_sin_seleccion_pide_todas_con_su_numero_original():
+    elegidas = seleccionar_frases("")
+    assert [n for n, _ in elegidas] == list(range(1, len(FRASES) + 1))
+
+
+def test_seleccion_por_comas_conserva_el_numero_y_el_orden_dado():
+    elegidas = seleccionar_frases("1,3,9,10")
+    assert [n for n, _ in elegidas] == [1, 3, 9, 10]
+    assert elegidas[0][1] is FRASES[0] and elegidas[3][1] is FRASES[9]
+
+
+def test_seleccion_acepta_rangos_y_espacios_y_no_repite():
+    assert [n for n, _ in seleccionar_frases(" 1-3, 2 ,5")] == [1, 2, 3, 5]
+
+
+@pytest.mark.parametrize("texto", ["0", "11", "99", "a", "1,,2x", "3-1", "-2"])
+def test_seleccion_invalida_es_error_claro(texto):
+    with pytest.raises(ValueError):
+        seleccionar_frases(texto)
