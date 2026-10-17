@@ -1,4 +1,4 @@
-import type { Amount, Budget, Enrollment, ErrorBody, ErrorCode, GrantCallback, TurnResponse } from "./types"
+import type { Amount, Budget, Contact, Enrollment, ErrorBody, ErrorCode, GrantCallback, TurnResponse } from "./types"
 
 const BASE = "/api" // CONV-5 / web-conversation: solo el Contrato B, vía proxy
 const TIMEOUT_MS = 35_000 // un turno de pago puede tardar ~25 s
@@ -22,6 +22,11 @@ const MESSAGES: Record<ErrorCode, string> = {
   INVALID_AMOUNT: "Ese monto no es válido.",
   UPSTREAM_ERROR: "No pude comunicarme con tu billetera. Intenta en un momento.",
   INTERNAL_ERROR: "Algo falló de nuestro lado. Intenta de nuevo.",
+  INVALID_REQUEST: "Algo falló. Intenta de nuevo.",
+  INVALID_WALLET: "No encontré esa billetera, o no está en pesos. Revisa la dirección.",
+  INVALID_CONTACT: "El nombre debe tener solo letras.",
+  CONTACT_EXISTS: "Ya tienes ese contacto.",
+  CONTACT_NOT_FOUND: "Ese contacto ya no existe.",
 }
 export const FALLBACK_MESSAGE = "Algo falló. Intenta de nuevo"
 export const isKnownCode = (code: string): code is ErrorCode => code in MESSAGES
@@ -90,6 +95,13 @@ export function postEnrollment(samples: Blob[]) {
 }
 
 export const getEnrollment = () => call<Enrollment>("/enrollment", { method: "GET" })
+
+// Agenda (extensión x-proposed del Contrato B): Python valida la wallet contra Open Payments.
+export const getContacts = () => call<{ contacts: Contact[] }>("/contacts", { method: "GET" })
+export const addContact = (name: string, walletAddress: string) =>
+  call<Contact>("/contacts", json({ name, walletAddress }))
+export const deleteContact = (alias: string) =>
+  call<null>(`/contacts/${encodeURIComponent(alias)}`, { method: "DELETE" })
 
 // Chrome graba webm/opus y Safari mp4: la extensión le dice a Python qué decodificar.
 function audioFileName(blob: Blob, base = "command") {

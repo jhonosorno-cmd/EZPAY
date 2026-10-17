@@ -15,3 +15,4 @@ export type Payment = NonNullable<S["TurnResponse"]["payment"]>
 export type RecipientOption = NonNullable<S["TurnResponse"]["options"]>[number]
 export type GrantCallback = { interactRef?: string; hash?: string; result?: string }
 export type Enrollment = { enrolled: boolean }
+export type Contact = S["Contact"]

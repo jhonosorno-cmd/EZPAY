@@ -17,7 +17,7 @@ import { speak, unlockAudio } from "../voice/tts"
 type Conv = ReturnType<typeof useConversation>
 const CAN_SPEAK = ["AWAITING_COMMAND", "AWAITING_CONFIRMATION", "AWAITING_RECIPIENT_CHOICE", "PAYMENT_PENDING"]
 
-export function Conversation({ conv, onEnroll }: { conv: Conv; onEnroll: () => void }) {
+export function Conversation({ conv, onEnroll, onContacts }: { conv: Conv; onEnroll: () => void; onContacts: () => void }) {
   const { view, busy, sendText, sendAudio, restart } = conv
   const [budgetUrl, setBudgetUrl] = useState<string | null>(null)
   const [budget, setBudget] = useState<Budget | null>(null)
@@ -111,6 +111,10 @@ export function Conversation({ conv, onEnroll }: { conv: Conv; onEnroll: () => v
 
         {s === "AWAITING_COMMAND" && !hasBudget && !budgetUrl && (
           <button className="linkish" onClick={askBudget}>Autorizar presupuesto de $&nbsp;{formatAmount(DEMO_BUDGET)}</button>
+        )}
+
+        {(s === "AWAITING_COMMAND" || s === "COMPLETED" || s === "REJECTED") && (
+          <button className="pill pill-light" onClick={onContacts}>👥 Mis contactos</button>
         )}
 
         {s === "AWAITING_COMMAND" && enrolled === false && (
