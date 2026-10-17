@@ -408,6 +408,51 @@ Si una variante necesita la quote y es None ⇒ `InvalidContextError` (mensaje f
 Respóndeme con el nº de pruebas por directorio y desviaciones. Luego para y espera.
 ````
 
+### B6 — Scripts de los experimentos de H2 en vivo (fuera del repo)
+
+Resumen: scripts en `Pruebas ML2\experimentos_h2\` (fuera del repo) para grabar en vivo con las frases oficiales del enrolamiento: `x0_entorno.py` (modelo sin internet y latencia), `x1_enrolar.py` (3 frases, consistencia, huella promedio), `x2_comandos.py` (3 comandos contra todas las huellas, estrategias promedio y máximo, truncados de 1,0 a 3,0 s y sin los primeros 0,5 s), `x4_reproduccion.py` (reproducción desde el celular) y `analizar.py` (informe con decisiones sugeridas). Audio solo en memoria; se guardan solo embeddings y métricas. El texto completo de esta instrucción está en la transcripción de la sesión; aquí se resume porque solo produjo herramientas de medición que no están en el repo.
+
+### B7 — Experimento 6 (detector de voz) y código de H2
+
+````text
+Orden de la sesión padre (Daniel, ML 2). Dos tareas EN ORDEN; avísame al terminar la 1 antes de empezar la 2 (Daniel necesita grabar con la 1). Sin commits ni push: yo los hago.
+
+## Tarea 1 — Experimento de la mejora 6: detector de voz (VAD) vs `trim_silence`
+En `Pruebas ML2\experimentos_h2\` (mismas reglas que antes: no leer `recordings/` ni `test_data/`, audio solo en memoria, solo embeddings y métricas en `resultados/`, reutiliza `lab.py`, `--simular`, `--device`, `--list-devices`).
+- **Detector nuevo:** VAD de SpeechBrain `speechbrain/vad-crdnn-libriparty`, guardado en `Pruebas ML2\pretrained_models\vad-crdnn-libriparty` (la PRIMERA vez se descarga con internet; después debe cargar con `HF_HUB_OFFLINE=1`; si no está y no hay red, avisa claro). Usa sus segmentos de voz: concatena solo los tramos con voz (método V1 "recorte por VAD": primer inicio a último fin, con 0,25 s de margen; y método V2 "solo voz": concatenar los segmentos y quitar pausas internas). Si el VAD no detecta voz, la toma cuenta como `NOT_AVAILABLE`.
+- **`x6_vad.py --persona NOMBRE [--repeticiones 5]`**: en UNA sesión, la persona graba las 3 frases oficiales del enrolamiento y luego los 3 comandos (los mismos de x2) `--repeticiones` veces. Para CADA toma calcula el embedding con los 3 preprocesos: E (energía, `trim_silence` actual), V1 y V2; guarda huellas promedio L2 por método (`resultados/huellas_x6/NOMBRE_{E,V1,V2}.npy`) y la voz útil por método. Compara cada comando contra TODAS las huellas del MISMO método (genuino e impostor) y escribe `resultados/x6.csv` (hablante, huella, genuino, frase, repetición, metodo, voz_util_s, score). Es decir: las MISMAS tomas pasan por los 3 detectores (comparación justa).
+- **`analizar_x6.py [--umbral 0.45]`**: por método: genuino mínimo/mediana, impostor máximo, margen, falsos aceptados/rechazados a 0.40/0.45/0.50/0.55, consistencia del enrolamiento (peor par por persona), voz útil de la frase de la demo, y casos `NOT_AVAILABLE`. Recomendación: cambiar de E a V1/V2 solo si tiene 0 falsos aceptados a 0.45 y un margen mayor que E en al menos 0,03; si no, quedarse con E (avisa que cambiar el detector obliga a recalibrar y a actualizar el spec). Escribe `resultados/informe_x6.md` e imprímelo.
+- Actualiza `experimentos_h2/README.md` con los comandos. Prueba en seco con `--simular` y luego borra los datos simulados.
+
+## Tarea 2 — Código de H2 en el repo, rama `H2`
+Trabaja en `C:\Users\danie\Desktop\Hackatons\Interledger\EZPAY\` (la rama `H2` ya está activa; no cambies de rama). Fuente de verdad: `openspec/changes/add-decision-engine/specs/speaker-verification/spec.md`, `.../voice-enrollment/spec.md` y `design.md` (léelos completos; los valores ya están decididos: huella = promedio L2-normalizado, umbral 0.45 con `score >= umbral` ⇒ VERIFIED, `minVerifySeconds` 2,0 s de voz útil, tope 30 s ⇒ NOT_AVAILABLE sin cargar, corte de consistencia 0.45, muestras de 3 a 15 s de voz útil, orden de errores CONSENT_REQUIRED → SAMPLES_REQUIRED → INVALID_AUDIO → INCONSISTENT_SAMPLES, consentimiento único con `consentExterno`, re-enrolamiento atómico, persistencia fuera de git, carga del modelo al arrancar, un candado). Si algo es ambiguo, pregúntame.
+- **Paquete nuevo `api/speaker/`** (solo toca `api/speaker/`, `api/tests/speaker/`, `api/README-ml2.md`): `audio.py` (`trim_silence` idéntico al de calibración: frame=320, pad=0,25, umbral 0,1 × RMS máximo; duración de voz útil), `verification.py` (`SpeakerVerifier` con `load()` al arrancar, `embed(pcm)`, `verify(pcm, user) -> {"status", "score"}` con `score=None` en NOT_AVAILABLE, candado), `enrollment.py` (`enroll(samples, consent) -> {"enrolled": True}` o error con `code` de B-5, `status() -> {"enrolled": bool}`, `consent_external() -> bool`, `delete()`), `store.py` (persistencia en un directorio configurable por `EZPAY_SPEAKER_DATA_DIR`, por defecto `api/.data/speaker/`, que crea un `.gitignore` con `*` dentro; guarda solo el embedding y la marca de consentimiento, nunca audio; escritura atómica con archivo temporal + rename), `scripts`: `api/scripts/delete_voiceprint.py` (PRIV-3). Entrada: `numpy` float32 16 kHz mono (Voz decodifica).
+- **El modelo se inyecta:** `SpeakerVerifier(embedder=...)`; el embedder real carga SpeechBrain ECAPA desde `EZPAY_SPEAKER_MODEL_DIR` con `HF_HUB_OFFLINE=1`; si falla, `verify` devuelve NOT_AVAILABLE siempre y deja un aviso sin datos biométricos. Las pruebas usan un embedder FALSO determinista (por ejemplo, vectores fijos por "hablante" sintético) para no depender del modelo ni de la red; agrega UNA prueba de integración que use el modelo real solo si `EZPAY_SPEAKER_MODEL_DIR` existe (si no, `skipTest`). `speechbrain`/`torch` se importan de forma perezosa (el paquete debe importarse sin ellos).
+- **Pruebas primero:** una prueba por cada `#### Scenario` de los dos specs (nómbralas con el título del escenario), en `api/tests/speaker/` sin `__init__.py`, nombres de archivo únicos (no repitas los de `tests/voice`, `tests/decision`, `tests/pin`). Escenarios que dependen de medición (latencia < 1 s, RAM) ⇒ prueba de integración con `skipTest` si no hay modelo. Privacidad: verifica que ni logs ni excepciones contienen audio, embeddings ni puntajes (captura logging). Concurrencia: dos hilos llaman a `verify` y el candado serializa.
+- Corre con `C:\Users\danie\Desktop\Hackatons\Interledger\Pruebas ML2\.venv\Scripts\python.exe` desde `api/`: `PYTHONPATH=. python -m unittest discover -s tests/speaker -v`, y también las suites existentes (`tests/decision`, `tests/pin`; si `tests/voice` usa pytest y no está instalado, dilo) para confirmar que no rompiste nada. Pruébalo también con el modelo real apuntando `EZPAY_SPEAKER_MODEL_DIR` a `Pruebas ML2\pretrained_models\spkrec-ecapa-voxceleb`.
+- README-ml2: sección "Verificación de hablante y enrolamiento" con cómo lo usa el orquestador (cargar al arrancar; `verify` ⇒ `context.voice`; `enroll`/`status`/`delete` para las rutas `/api/enrollment` de Pagos; `consent_external()` para Voz) y las variables de entorno.
+
+Entrega de cada tarea: árbol, comandos exactos, nº de pruebas (por directorio) y desviaciones.
+````
+
+### B8 — Continuar con el código de H2
+
+````text
+Tarea 1 aprobada, gracias (buen hallazgo el del silencio digital). Sigue con la Tarea 2 (paquete `api/speaker/` en el repo, rama `H2`) tal como está en mi mensaje anterior. Daniel graba x6 en paralelo con el mismo micrófono; no toques `Pruebas ML2\experimentos_h2\` mientras tanto. Sin commits; avísame al terminar con árbol, comandos y nº de pruebas por directorio.
+````
+
+### B9 — Medir la voz útil como en la calibración
+
+````text
+Revisión de la sesión padre: muy buen trabajo, pero hay que revertir la desviación 1 (bloqueante). Los valores 2,0 s (`minVerifySeconds`), 3 s y 15 s se CALIBRARON midiendo la voz útil como `len(trim_silence(audio)) / SAMPLE_RATE`, es decir, CON el margen de 0,25 s a cada lado (ver `Pruebas ML2\experimentos_h2\lab.py` líneas ~205 y ~267: `len(corte_e) / SAMPLE_RATE` y `len(audio) / SAMPLE_RATE` tras `trim_silence`). Los truncados de X-2 (1,0–3,0 s) también se cortaron sobre el audio ya recortado con margen. Si el código mide sin margen (~0,5 s menos), la frase de la demo (2,06–3,02 s medidos con margen) quedaría en ~1,56–2,5 s y muchas tomas genuinas darían NOT_AVAILABLE ⇒ PIN en plena demo. Cambios (pruebas primero):
+1. `duracion_voz_util(pcm)` = `len(trim_silence(pcm, frame=320, pad=0.25)) / SAMPLE_RATE` (exactamente la medida de la calibración; con audio sin voz, 0). Úsala igual en verificación (2,0 s) y enrolamiento (3–15 s). Docstring: "misma medida que la calibración del 16–17 oct (incluye el margen de 0,25 s); cambiarla obliga a recalibrar".
+2. Prueba de no regresión: una toma sintética con 1,6 s de voz + silencios ⇒ voz útil = 1,6 + 0,5 = 2,1 s ⇒ se verifica (no NOT_AVAILABLE); y una de 1,4 s de voz ⇒ 1,9 s ⇒ NOT_AVAILABLE. Y una prueba que compare `duracion_voz_util` con `len(trim_silence(x))/16000` para varios audios.
+3. Actualiza README-ml2 si menciona la medida.
+Corre de nuevo tests/speaker (normal y con el modelo real), tests/decision y tests/pin. Sin commits. Respóndeme con los números.
+````
+
+Las instrucciones al Constructor de Specs de esta etapa (plan de experimentos, resultados del 17 oct, X-6 y frase de la demo con la divisa) actualizaron los artifacts que luego se copiaron a `openspec/changes/add-decision-engine/`; sus decisiones están en `prompts/Valdex328/12-rama-h2-experimentos-y-codigo.md` y en `design.md`.
+
 ---
 
 Registro: 2026-10-16 · textos tomados de los mensajes enviados desde la sesión "Hachathon Interledger EZPAY" a los agentes `a0e9fa5f` (Constructor de Specs) y `c23437fd` (Builder). Los mensajes de estado sin instrucciones nuevas no se incluyen.
