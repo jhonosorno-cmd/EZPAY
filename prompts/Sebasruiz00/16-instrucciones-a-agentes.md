@@ -91,6 +91,18 @@ Revisión de la sesión padre sobre tu Tarea 1. Buen trabajo de fondo: hallazgos
 No cambies nada más. Cuando termines, responde a la sesión padre con la lista de lo corregido (una línea por punto) y espera.
 ````
 
+### A3 — Decisión D-1 de Sebastián: proponer la ratificación de `kind=verify_pending`
+
+````text
+Decisión de Sebastián sobre tu D-1 (2026-10-16): opción a). Voz adopta `kind=verify_pending` como el mecanismo del turno automático de verificación de `PAYMENT_PENDING` y propone al equipo ratificarlo; mientras el equipo no lo ratifique, el contrato sigue con ese campo `x-proposed`. Aplica esto SOLO después de terminar las correcciones de A2, sobre los archivos ya corregidos de `C:\Users\sebas\Pruebas\_agentes\specs\`, con las mismas reglas duras (nada dentro de `C:\Users\sebas\Pruebas\EZPAY`), y regenera los `.diff`:
+
+1. `speech-transcription/spec.md`, requisito "Entrada de texto o de audio, no ambas ni ninguna" (y el que hayas separado al acortarlo): el turno de verificación se identifica por `kind=verify_pending` más `sessionId`, sin `audio` ni `text`. Márcalo como **[DECIDIDO por Voz, 2026-10-16; ratificación del Contrato B pendiente del equipo]** y quita el [PARA DECIDIR] de Voz. Mantén los escenarios: vacío sin `kind` ⇒ `AUDIO_OR_TEXT_REQUIRED` aunque la sesión esté en `PAYMENT_PENDING`; con `kind=verify_pending` ⇒ se acepta y no pasa por el módulo de voz. No uses el estado de la sesión como criterio.
+2. `proposal.md` y `tasks.md` 1.2: misma redacción (decidido por Voz, ratificación pendiente del equipo; dueño de la propuesta: Sebastián; dueño del contrato: Pagos).
+3. `decisiones-para-sebastian.md`: deja D-1 como "Resuelta: a), Sebastián, 2026-10-16" y no la repitas como pendiente.
+4. `propuestas-equipo.md`: agrega P-8 "Ratificar `kind=verify_pending`": (a) `openapi/contract-b.yaml`, `TurnRequest` tercera variante y descripción de `POST /api/turns`: quitar `x-proposed` de `kind`; (b) `openapi/README.md`, sección "Qué es propuesto y qué está ratificado": pasar `kind=verify_pending` a ratificado; (c) `docs/contratos-cambios-propuestos-v1.1.md`: en B-2 agregar el mecanismo (`sessionId` + `kind=verify_pending`, sin `audio` ni `text`) y cerrar la inconsistencia "B-2 y B-3" de la sección "Inconsistencias que resolver". Cita el texto actual exacto de cada uno. Aprueban: los cuatro; dueño del contrato: Pagos (Alex).
+No cambies nada más. Al terminar, responde a la sesión padre con la lista de lo cambiado (una línea por punto) y espera.
+````
+
 ---
 
-Registro: 2026-10-16 22:54 (hora de guardado; A1 enviada a las 22:46) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`), sesión padre · Origen: instrucción A1 enviada al agente Constructor Specs (`0334e8e7`).
+Registro: 2026-10-16 23:11 (hora de guardado; A1 enviada a las 22:46, A2 entre las 22:59 y las 23:05, A3 a las 23:11) · Claude Code, Claude Sonnet 5.5 (`claude-sonnet-5-5`) en A1 y Claude Opus 5.5 (`claude-opus-5-5`) en A2 y A3, sesión padre · Origen: instrucciones A1, A2 y A3 enviadas al agente Constructor Specs (`0334e8e7`).
