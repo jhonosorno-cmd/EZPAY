@@ -37,7 +37,7 @@ Todo `Amount` recibido SHALL tener `value` como string de solo dígitos (`^\d+$`
 - **THEN** responde `400 INVALID_AMOUNT`
 
 ### Requirement: Creación de grant interactivo con límite
-`POST /v1/grants` SHALL pedir a Open Payments un grant interactivo de `outgoing-payment` con acciones `create` y `read`, `limits.debitAmount` igual al del request y `limits.interval` solo si viene. Responde `201` con `grantId` propio, `status: "PENDING"` e `interactUrl`.
+`POST /v1/grants` SHALL pedir a Open Payments un grant interactivo de `outgoing-payment` con acciones `create`, `read` y `list`, `limits.debitAmount` igual al del request y `limits.interval` solo si viene. Responde `201` con `grantId` propio, `status: "PENDING"` e `interactUrl`.
 
 #### Scenario: Grant con tope total
 - **WHEN** llega `POST /v1/grants` con `limit.debitAmount` de 200.00 y sin `interval`
