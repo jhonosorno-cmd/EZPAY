@@ -140,9 +140,6 @@ Pendiente: cambiar las frases flojas por otras que empiecen con una palabra larg
 - "…a Laura vecina gracias" deja "gracias" en el destinatario, y la agenda no lo encuentra. Seguro.
 - "José" con un carácter invisible pegado se resuelve a José (el invisible separa palabras). La
   confirmación hablada sigue siendo obligatoria.
-- **Formato del audio en la demo (Mac):** la web graba con el formato por defecto del navegador. Chrome entrega WebM (aceptado);
-  Safari entrega MP4/AAC y Firefox Ogg, que `transcribe` rechaza como `INVALID_AUDIO`. Hay que confirmar que la demo va en Chrome o
-  aceptar esos formatos (el decodificador `av` ya los lee). Pendiente de una grabación real desde la Mac (X-4).
 - La agenda es provisional y ficticia (`ezpay-placeholder-*`). Pagos la reemplaza antes de la demo.
 - Los ejemplos de `say` de `contract-b.yaml` ("¿Le envío 20 mil a Laura?") difieren del catálogo
   ("20.000 pesos"); es un ejemplo del mock y lo corrige Pagos.
