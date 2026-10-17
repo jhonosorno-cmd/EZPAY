@@ -38,3 +38,10 @@ y umbral de voz 0.45 provisional (D6), que se fija en la sala con el micrófono 
   `speaker-verification`, `voice-enrollment` y `pin-validation`. Sin ese cambio no hay spec para
   el motor de H1.
 - **Rol Voz** agrega el puntaje de confianza a `intent-extraction` y `speech-transcription`.
+
+## 2026-10-17 — Contrato v1.2: `INVALID_REQUEST`
+
+Se agrega `INVALID_REQUEST` (400) al `ErrorCode` de los Contratos A y B para peticiones mal
+formadas (JSON inválido, campos obligatorios faltantes o inválidos, ruta desconocida). Reemplaza el
+mapeo provisorio a `INTERNAL_ERROR` de D-10 a de Pagos. Detalle en
+[`contratos-cambios-v1.2.md`](./contratos-cambios-v1.2.md) (cambio AB-1). Ratificado por los cuatro.
