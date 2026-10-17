@@ -110,9 +110,9 @@ describe('service responses validate against openapi/contract-a.yaml (FakeOp, no
     const env = build()
     const { app, op } = env
 
-    const malformed = await request(app).post('/v1/grants').set('content-type', 'application/json').send('{bad').expect(500)
-    expect(malformed.body.error.code).toBe('INTERNAL_ERROR')
-    expectValid('POST', '/v1/grants', 500, malformed.body)
+    const malformed = await request(app).post('/v1/grants').set('content-type', 'application/json').send('{bad').expect(400)
+    expect(malformed.body.error.code).toBe('INVALID_REQUEST')
+    expectValid('POST', '/v1/grants', 400, malformed.body)
 
     const amount = await request(app).post('/v1/grants').send({ ...grantBody, limit: { debitAmount: { ...cop(1), value: '1.5' } } }).expect(400)
     expect(amount.body.error.code).toBe('INVALID_AMOUNT')
@@ -198,7 +198,7 @@ describe('service responses validate against openapi/contract-a.yaml (FakeOp, no
   it('the exercised error codes cover the contract enum', async () => {
     const enumCodes: string[] = doc.components.schemas.ErrorCode.enum
     const exercised = [
-      'INTERNAL_ERROR', 'INVALID_AMOUNT', 'INVALID_WALLET', 'INVALID_RECEIVER', 'INVALID_HASH', 'GRANT_REJECTED',
+      'INVALID_REQUEST', 'INVALID_AMOUNT', 'INVALID_WALLET', 'INVALID_RECEIVER', 'INVALID_HASH', 'GRANT_REJECTED',
       'GRANT_NOT_FOUND', 'GRANT_NOT_PENDING', 'GRANT_INVALID', 'IDEMPOTENCY_KEY_REQUIRED', 'QUOTE_NOT_FOUND',
       'LIMIT_EXCEEDED', 'QUOTE_EXPIRED', 'IDEMPOTENCY_KEY_REUSED', 'UPSTREAM_ERROR', 'PAYMENT_NOT_FOUND',
     ]
