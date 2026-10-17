@@ -30,6 +30,11 @@ export class FakeOp implements OpenPaymentsPort {
   failNext: Record<string, OpError> = {}
   tokenSeq = 0
   rejectOnContinue = false
+  /** Simula una wallet que rechaza con 403 mientras el access token siga siendo el original (vencido del lado del servidor). */
+  forbiddenUntilRotate = false
+  staleToken: string | null = null
+  /** TTL de la quote del fake; el default imita los 5 min de la Test Wallet. */
+  quoteTtlMs = 300_000
   private n = 0
 
   private track(name: string) {
@@ -50,7 +55,9 @@ export class FakeOp implements OpenPaymentsPort {
   async continueGrant() {
     this.track('continueGrant')
     if (this.rejectOnContinue) throw new OpError('forbidden')
-    return { value: `ACCESS-TOKEN-SECRET-${++this.tokenSeq}`, manageUrl: `https://auth.test/token/${this.tokenSeq}`, expiresAt: new Date(this.now + 600_000) }
+    const t = { value: `ACCESS-TOKEN-SECRET-${++this.tokenSeq}`, manageUrl: `https://auth.test/token/${this.tokenSeq}`, expiresAt: new Date(this.now + 600_000) }
+    this.staleToken ??= t.value
+    return t
   }
   async cancelGrant() { this.track('cancelGrant') }
   async rotateToken() {
@@ -60,12 +67,13 @@ export class FakeOp implements OpenPaymentsPort {
   }
   async createQuote(a: { receiveAmount: Amount }) {
     this.track('createQuote')
-    return { url: `https://rs.test/quotes/${++this.n}`, debitAmount: this.quoteDebit(a.receiveAmount), receiveAmount: a.receiveAmount, expiresAt: new Date(this.now + 300_000) }
+    return { url: `https://rs.test/quotes/${++this.n}`, debitAmount: this.quoteDebit(a.receiveAmount), receiveAmount: a.receiveAmount, expiresAt: new Date(this.now + this.quoteTtlMs) }
   }
   async createOutgoingPayment(a: { quoteUrl: string; accessToken: string }) {
     this.track('createOutgoingPayment')
     if (this.createDelayMs) await new Promise((r) => setTimeout(r, this.createDelayMs))
-    const mode = this.createBehavior.shift() ?? 'ok'
+    const mode = this.createBehavior.shift()
+      ?? (this.forbiddenUntilRotate && a.accessToken === this.staleToken ? 'forbidden' : 'ok')
     const make = () => {
       const q = this.quotes.get(a.quoteUrl)!
       const p = { url: `https://rs.test/op/${++this.n}`, failed: false, debitAmount: q, sentAmount: cop(0), quoteUrl: a.quoteUrl }

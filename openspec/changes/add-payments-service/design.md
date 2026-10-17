@@ -193,23 +193,37 @@ Toda la suma y comparación se hace con `BigInt` sobre `value`. Dos montos con d
 Se versiona solo `.env.example`. Hay un script (no un endpoint) que borra la base de datos para
 preparar la demo.
 
-### D13 — El exceso de límite usa un grant puntual
+### D13 — El exceso de límite usa un grant puntual semanal
 Python maneja dos tipos de grant: el **grant de presupuesto** (autorizado una vez) y un
-**grant puntual** para un pago que excede lo restante, con tope total igual al `debitAmount` de
-la quote que excedió y sin `interval`. Node no necesita distinguirlos: ambos son grants del
-Contrato A, y `/quotes` y `/payments` ya reciben el `grantId` que Python decide pasar.
+**grant puntual** para un pago que excede lo restante, con tope igual al `debitAmount` de
+la quote que excedió e `interval` semanal de una sola repetición (`R1/<hoy 00:00:00Z>/P1W`,
+decisión #1 del 16 oct). Node no necesita distinguirlos: ambos son grants del Contrato A,
+y `/quotes` y `/payments` ya reciben el `grantId` que Python decide pasar.
 - *Por qué:* el grant de presupuesto sigue `ACTIVE` durante y después del pago puntual, así que
   la usuaria no pierde lo que le quedaba del presupuesto (tramo 2:30–2:50 del guion, Spec
   general §3).
 - *Alternativa descartada:* ampliar el grant de presupuesto a `max(límite original, monto)`
   dejaba el restante en 0 y borraba el presupuesto autorizado una sola vez.
-- *Ciclo de vida:* el grant puntual se **cancela** con `DELETE /v1/grants/{grantId}` (cambio
-  propuesto) cuando se usó en un pago completado, cuando la intención se descarta o cuando lo
-  reemplaza otro puntual; no vence por semana.
-- *Alternativa descartada:* vencerlo por semana con `interval` dependía de que
-  `limits.interval` funcione ([VERIFICAR] en E3, sin verificar).
-- *Requisito del lado Node:* "Varios grants activos por usuario" y "Cancelación de un grant" en
-  `specs/payments-service/spec.md`.
+- *Ciclo de vida:* el grant puntual se **cancela** con `DELETE /v1/grants/{grantId}` (A-1)
+  cuando se usó en un pago completado, cuando la intención se descarta o cuando lo reemplaza
+  otro puntual (como ya lo especifica `add-payments-client`); se pide con `limits.interval`
+  `R1/<inicio>/P1W` y el vencimiento semanal (`load()` + `currentPeriod`) es la red de
+  seguridad si la cancelación no ocurre.
+- *Evidencia de los experimentos del 17 oct (`payments/experiments/*.md`):*
+  (i) la Test Wallet **acepta** `R1/<inicio>/P1W` junto con `debitAmount` y lo devuelve en el
+  grant (`weekly-interval-and-token.md`, sección P1); el vencimiento real a 7 días no es
+  observable, así que el servicio lo hace cumplir por su cuenta;
+  (ii) con el access token vencido la wallet responde **403, no 401**: por eso el servicio rota
+  el token una vez ante un 403 cuyo monto entra en lo que queda (D-14a) y reintenta
+  (`weekly-interval-and-token.md`, sección P4);
+  (iii) `getGrantSpentAmounts` devuelve `spentDebitAmount` **nulo** antes del primer pago: se
+  trata como 0 y rige la suma local (`weekly-interval-and-token.md`, sección P5);
+  (iv) verificado en la Test Wallet: `token.revoke` sobre la manage URL y `grant.cancel` sobre
+  la continue URI dejan el access token inusable (403 en lectura), así que la cancelación de
+  A-1 está cubierta con `token.revoke` (`cancel-grant.md`; resuelve el [VERIFICAR] del
+  adaptador).
+- *Requisito del lado Node:* "Varios grants activos por usuario", "Cancelación de un grant" y
+  el escenario de 403 con token vencido en `specs/payments-service/spec.md`.
 
 ## Risks / Trade-offs
 

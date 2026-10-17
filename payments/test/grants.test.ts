@@ -136,3 +136,27 @@ describe('several active grants', () => {
     expect(await env.svc.getGrant(a)).toMatchObject({ status: 'ACTIVE', remaining: cop(200_00) })
   })
 })
+
+describe('weekly one-off grant (D-13a)', () => {
+  const quote = (env: ReturnType<typeof makeEnv>, grantId: string, v: number) =>
+    env.svc.createQuote({ grantId, receiver: 'https://ilp.test/laura', receiveAmount: cop(v) })
+  it('is ACTIVE on day 6, EXPIRED on day 8, and a payment on day 8 answers GRANT_INVALID without calling Open Payments', async () => {
+    const start = Date.parse('2026-10-17T00:00:00Z')
+    const DAY = 86_400_000
+    const t = { v: start }
+    const env = makeEnv({ now: () => t.v })
+    env.op.now = t.v
+    env.op.quoteTtlMs = 10 * DAY // la quote sobrevive al día 8 para ejercitar el vencimiento del GRANT, no el de la quote
+    const id = await activeGrant(env, 100_00, 'R1/2026-10-17T00:00:00Z/P1W')
+
+    t.v = start + 6 * DAY
+    expect((await env.svc.getGrant(id)).status).toBe('ACTIVE')
+    const q = await quote(env, id, 10_00)
+
+    t.v = start + 8 * DAY
+    expect((await env.svc.getGrant(id)).status).toBe('EXPIRED')
+    const callsBefore = env.op.calls.length
+    await rejects(env.svc.pay('k1', { quoteId: q.quoteId }), 'GRANT_INVALID', 401)
+    expect(env.op.calls.slice(callsBefore)).toHaveLength(0)
+  })
+})
