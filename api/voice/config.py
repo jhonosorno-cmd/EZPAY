@@ -21,7 +21,7 @@ GROQ_MODEL = "whisper-large-v3-turbo"
 WHISPER_LOCAL_MODEL = "base"
 SAMPLE_RATE = 16000              # PCM objetivo: float32, 16 kHz, mono (contrato-voz §4)
 SPEECH_RMS_THRESHOLD = 0.015     # RMS mínimo de un tramo de 20 ms (PCM de -1 a 1); el ruido del cuarto medido llega a 0,009
-SPEECH_MIN_SECONDS = 0.25        # los tramos con energía deben sumar al menos esto; menos: no hay habla (filtro previo)
+SPEECH_MIN_SECONDS = 0.12        # los tramos con energía deben sumar al menos esto; menos: no hay habla (filtro previo)
 
 # Desafío de confirmación por voz (confirmation-challenge, decidido el 17 oct).
 CHALLENGE_BANK_PATH = Path(__file__).with_name("challenge_phrases.json")
