@@ -15,6 +15,7 @@ const PAY = '50000'
 const state = {
   expiresIn: null as number | null,
   readBefore: null as string | null,
+  readBeforeDone: false,
   cancelResult: null as string | null,
   readAfter: null as string | null,
   readAlive: null as boolean | null,
@@ -53,6 +54,7 @@ async function flow(): Promise<void> {
 
   const before = await grantSpent(w, finalized.accessToken)
   state.readBefore = before.spentDebit
+  state.readBeforeDone = true
   log(`PASO d: lectura con el access token ANTES de cancelar: aceptada (spentDebit=${state.readBefore ?? 'no informado'})`)
 
   try {
@@ -104,7 +106,7 @@ async function main(): Promise<void> {
 function buildReport(): string[] {
   const lines: string[] = [
     REPORT_HEADER('Experimento C — ¿grant.cancel invalida de verdad el acceso? (P3 parte 2)'),
-    `## Procedimiento\n\n1. Grant interactivo de 4.000,00 COP sin interval, aprobado por el dueño.\n2. continue OK (expires_in: ${state.expiresIn ?? 'no informado'}).\n3. Lectura de referencia con el access token antes de cancelar: ${state.readBefore !== null ? `aceptada (spentDebit=${state.readBefore})` : 'no realizada'}.`,
+    `## Procedimiento\n\n1. Grant interactivo de 4.000,00 COP sin interval, aprobado por el dueño.\n2. continue OK (expires_in: ${state.expiresIn ?? 'no informado'}).\n3. Lectura de referencia con el access token antes de cancelar: ${state.readBeforeDone ? `aceptada (spentDebit=${state.readBefore ?? 'no informado'})` : 'no realizada'}.`,
     `## P3 (parte 2) — resultado\n\n- ${state.cancelResult ?? 'no se llegó a cancelar'}.\n- Lectura con el access token después de cancelar: ${state.readAfter ?? 'no realizada'}.\n- Pago con el access token después de cancelar: ${state.paymentResult ?? 'no realizado'}.\n\nPagos reales en esta corrida: ${state.paymentMade ? 1 : 0} de 500,00 COP (tope de la unidad: 5 pagos).`,
     `## Conclusión\n\n${state.readAlive === null ? 'Sin datos suficientes.' : state.readAlive ? 'grant.cancel NO revocó el access token: la lectura siguió funcionando; el grant queda cancelado en GNAP pero el token sigue operativo. Comparar con token.revoke en weekly-interval-and-token.md (sección P3 parte 1).' : 'grant.cancel revocó el acceso: la lectura con el access token quedó rechazada, igual que el efecto de token.revoke en el experimento A.'}`,
   ]
