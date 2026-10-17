@@ -18,6 +18,7 @@ import msvcrt
 import os
 import sys
 import time
+import winsound
 from pathlib import Path
 
 import av
@@ -26,6 +27,7 @@ import sounddevice as sd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from scripts.audio_nivel import nivel, resolver_dispositivo  # noqa: E402
 from scripts.bateria import agregar_fila, evaluar, ruta_por_defecto, seleccionar_frases  # noqa: E402
 from voice.config import SAMPLE_RATE  # noqa: E402
 from voice.engines import _pcm_to_wav_bytes, build_default_engines  # noqa: E402
@@ -44,6 +46,7 @@ def _cargar_env() -> None:
                 os.environ.setdefault(nombre.strip(), valor.strip().strip('"').strip("'"))
 
 
+PAUSA_ANTES_DE_HABLAR_S = 0.4  # tiempo con el micrófono abierto antes de la señal de "habla ahora"
 MAX_SEGUNDOS = 15  # igual que el tope del navegador
 
 def _vaciar_teclado() -> None:
@@ -64,18 +67,22 @@ def _esperar_espacio() -> str:
 
 
 def _grabar_hasta_espacio() -> np.ndarray:
-    """Graba del micrófono por defecto hasta otro ESPACIO; entrega PCM float32 16 kHz mono en memoria."""
-    dispositivo = sd.query_devices(kind="input")
+    """Graba hasta otro ESPACIO; entrega PCM float32 16 kHz mono en memoria. Micrófono: `set EZPAY_MICROFONO=N`."""
+    indice = resolver_dispositivo(os.environ.get("EZPAY_MICROFONO"), sd.query_devices())
+    dispositivo = sd.query_devices(indice) if indice is not None else sd.query_devices(kind="input")
     rate_in = int(dispositivo["default_samplerate"])
+    print(f"  Micrófono: {dispositivo['name'].strip()}")
     trozos: list[np.ndarray] = []
     _vaciar_teclado()
 
     def callback(indata, frames, time_info, status):  # noqa: ARG001
         trozos.append(indata.copy())
 
-    inicio = time.monotonic()
-    with sd.InputStream(samplerate=rate_in, channels=1, dtype="float32", callback=callback):
-        print("  >>> GRABANDO... habla y pulsa ESPACIO para detener", flush=True)
+    with sd.InputStream(device=indice, samplerate=rate_in, channels=1, dtype="float32", callback=callback):
+        time.sleep(PAUSA_ANTES_DE_HABLAR_S)  # el micrófono ya está abierto: así no se pierde la primera palabra
+        winsound.Beep(880, 120)
+        inicio = time.monotonic()
+        print("  >>> HABLA AHORA (ESPACIO para detener)", flush=True)
         while time.monotonic() - inicio < MAX_SEGUNDOS:
             if msvcrt.kbhit() and msvcrt.getwch() == " ":
                 break
@@ -90,6 +97,7 @@ def _grabar_hasta_espacio() -> np.ndarray:
     partes = [f.to_ndarray().reshape(-1) for f in resampler.resample(frame)]
     pcm = np.concatenate(partes).astype("float32")
     # Sin normalizar: el navegador tampoco lo hace, y subir el volumen amplifica el ruido de fondo.
+    print(f"  Nivel: {nivel(pcm).texto()}")
     return pcm
 
 
