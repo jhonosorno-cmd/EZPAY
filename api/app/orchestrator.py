@@ -111,6 +111,27 @@ class Orchestrator:
         return self._command_turn(session, audio_bytes, text, request_id)
 
     # ---------------------------------------------------------- fase de comando
+    def _check_pending_payment(self, session, request_id) -> None:
+        """Verificación del pago pendiente antes de procesar el turno (payments-client).
+
+        COMPLETED → registra el historial y libera el bloqueo; FAILED → libera
+        también (el pago anterior falló); PROCESSING → sigue pendiente.
+        """
+        pending = session.pending_payment
+        payment_id = pending.get("paymentId") if pending else None
+        if not payment_id:
+            return
+        final = self._node_call(
+            "get_payment",
+            lambda: self.payments.get_payment(payment_id, request_id=request_id),
+            request_id,
+        )
+        if final["status"] in ("COMPLETED", "FAILED"):
+            wallet = pending.get("recipient")
+            if final["status"] == "COMPLETED" and wallet:
+                self.history.add(wallet)
+            session.pending_payment = None
+
     def _command_turn(self, session, audio_bytes, text, request_id) -> dict:
         transcript: str | None = text or None
         if audio_bytes is not None:
@@ -124,10 +145,19 @@ class Orchestrator:
             session.state = TurnState.AWAITING_COMMAND
             return turns.response(session.id, TurnState.AWAITING_COMMAND, self._say(S.NOT_UNDERSTOOD.value))
 
+        self._check_pending_payment(session, request_id)
         intent = intent_dict(transcript)
         resolution = resolution_dict(intent, self.agenda)
         voice_status, voice_score = self._voice_of(audio_bytes, text)
         enrolled = bool(self.verifier.enrollment_status()) if self.verifier else False
+        return self._decide_command(session, intent, resolution, voice_status, voice_score,
+                                    transcript=transcript, audio_bytes=audio_bytes, text=text,
+                                    request_id=request_id)
+
+    def _decide_command(self, session, intent, resolution, voice_status, voice_score, *,
+                        transcript=None, audio_bytes=None, text=None, request_id=None) -> dict:
+        """La quote se pide antes del motor (excepción SEG-1: sin presupuesto, quote null)."""
+        intent, resolution = self._with_history(intent, resolution)
         has_budget = self._has_active_budget()
         quote = None
         if (
@@ -155,7 +185,7 @@ class Orchestrator:
             resolution=resolution,
             voice_status=voice_status,
             voice_score=voice_score,
-            enrolled=enrolled,
+            enrolled=bool(self.verifier.enrollment_status()) if self.verifier else False,
             has_budget_grant=has_budget,
             quote=quote,
             pending_payment=self._pending_of(session),
@@ -163,6 +193,14 @@ class Orchestrator:
             agenda=self.agenda,
         )
         return self._apply_decision(session, context, client_quote=quote, transcript=transcript, audio_bytes=audio_bytes, text=text, request_id=request_id)
+
+    def _with_history(self, intent, resolution):
+        """D9: un destinatario con pago COMPLETED previo entra como previouslyPaid."""
+        if resolution.get("kind") == Kind.RESOLVED.value:
+            wallet = resolution["contact"]["walletAddress"]
+            if wallet in self.history:
+                resolution = {**resolution, "contact": {**resolution["contact"], "previouslyPaid": True}}
+        return intent, resolution
 
     def _voice_of(self, audio_bytes, text) -> tuple[str, float | None]:
         """Regla de ML 2: un comando por texto entra NOT_AVAILABLE; el audio va al verificador."""
@@ -693,4 +731,43 @@ class Orchestrator:
             return None
         return {"kind": Kind.RESOLVED.value, "contact": session.contact}
 
-    # rebanadas siguientes: R7 (elección de destinatario y pago pendiente)
+    # ------------------------------------------------ elección de destinatario
+    def _choice_turn(self, session, audio_bytes, text, request_id) -> dict:
+        """B-4: la elección vuelve como text = alias, o por voz resuelta SOLO contra las options."""
+        transcript: str | None = text or None
+        if audio_bytes is not None:
+            transcript = self.transcriber.transcribe(audio_bytes) if self.transcriber else None
+            if not transcript:
+                return self._reask_choice(session, None)
+        from voice.contacts import Option, resolve_choice
+
+        offered = [Option(o["alias"], o["name"]) for o in (session.options or [])]
+        resolution = resolve_choice(transcript, offered, self.agenda)
+        if resolution.kind is not Kind.RESOLVED:
+            return self._reask_choice(session, transcript)
+        session.contact = resolution.contact.to_dict()
+        session.options = None
+        # el comando continúa con el contacto resuelto; la voz es la del comando (D4)
+        voice = session.voice or {"status": "NOT_AVAILABLE", "score": None}
+        return self._decide_command(
+            session,
+            session.intent,
+            {"kind": Kind.RESOLVED.value, "contact": session.contact},
+            voice["status"],
+            voice.get("score"),
+            transcript=transcript,
+            audio_bytes=audio_bytes,
+            text=text,
+            request_id=request_id,
+        )
+
+    def _reask_choice(self, session, transcript) -> dict:
+        session.state = TurnState.AWAITING_RECIPIENT_CHOICE
+        options = [dict(o) for o in (session.options or [])]
+        return turns.response(
+            session.id, TurnState.AWAITING_RECIPIENT_CHOICE,
+            self._say(S.CHOICE.value, options=options),
+            transcript=transcript,
+            options=options,
+        )
+

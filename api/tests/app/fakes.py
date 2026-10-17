@@ -1,21 +1,27 @@
 """Dobles compartidos de las pruebas del orquestador (layout plano, nombres únicos)."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+from pin import PinValidator, build_hash_spec
 from voice.config import AGENDA_PATH
 
 from app.main import create_app
 
 import node_double
 
+TEST_PIN = "2468"
+
 
 class FixedClock:
-    """Reloj doble con instante fijo en UTC."""
+    """Reloj doble: instante fijo en UTC que las pruebas pueden avanzar."""
 
     def __init__(self, instant: datetime | None = None):
         self.instant = instant or datetime(2026, 10, 17, 12, 0, 0, tzinfo=timezone.utc)
 
     def now(self) -> datetime:
         return self.instant
+
+    def advance(self, seconds: float) -> None:
+        self.instant = self.instant + timedelta(seconds=seconds)
 
 
 class RecordingTranscriber:
@@ -54,8 +60,13 @@ class RecordingVerifier:
 
 def make_app(fake_node: node_double.FakeNode | None = None, *, transcriber=None, verifier=None,
              clock=None, active_budget=False, **overrides):
-    """App de prueba con Node simulado; active_budget marca el grant de presupuesto ACTIVE."""
+    """App de prueba con Node simulado; active_budget marca el grant de presupuesto ACTIVE.
+
+    Sin pin_validator se inyecta uno de prueba (hash de TEST_PIN) para que los flujos
+    con PIN sean deterministas; el PIN real viene del entorno.
+    """
     fake = fake_node or node_double.FakeNode()
+    overrides.setdefault("pin_validator", PinValidator(hash_provider=lambda: build_hash_spec(TEST_PIN)))
     app = create_app(
         payments=fake.payments_client(),
         transcriber=transcriber,
