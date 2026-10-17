@@ -3,6 +3,23 @@
 Decisiones tomadas por los cuatro. Formato: qué se decidió, por qué y qué cambia. Las decisiones
 de un solo rol viven en el spec de ese rol.
 
+## 2026-10-17 — Confirmación con desafío de voz (propuesta de ML 2)
+
+Aprobada por los cuatro en reunión presencial. Detalle, banco de frases y reparto por rol en
+[`verificacion-ml2/confirmacion-con-desafio.md`](../verificacion-ml2/confirmacion-con-desafio.md).
+
+| Qué se decidió | Por qué | Qué cambia |
+|---|---|---|
+| La confirmación de un pago pedido **por voz** deja de ser "sí": el sistema dice el monto y el destinatario y pide repetir una frase elegida al azar de un banco (30 frases o más, sin nombres ni números). Se paga si la frase coincide (≥ 80 % de las palabras) y la voz es `VERIFIED`; si la voz no se verifica, PIN; si la frase no coincide, un reintento con otra frase y luego `REJECT` | En X-4 (17 oct) una grabación de la voz reproducida desde un celular pasó como `VERIFIED`: con un comando y un "sí" grabados se podía pagar sin PIN | SEG-2 y su escenario "El PIN no reemplaza el sí"; D4 (ahora se verifica la voz de la confirmación cuando es un desafío); guion de demo §3; `turn-orchestration` (Pagos), `add-voice-understanding` (Voz), `add-decision-engine` y `speaker-verification` (ML 2), `add-voice-web-client` (Frontend). Los comandos por texto siguen con PIN y botón "Sí" |
+
+Pendientes de esta decisión:
+
+- ¿Se agrega al Contrato B el campo opcional `confirmMode: "voice" | "button"` para que la web sepa si
+  mostrar el botón "Sí", o el orquestador rechaza un "sí" por texto en una confirmación por voz?
+- ¿Entra para la demo (detrás de la opción `confirmationChallenge`, apagada por defecto) o se presenta
+  como siguiente paso?
+- Cada rol actualiza su spec. Hasta entonces, `payment-safety` (SEG-2) y D4 describen la versión anterior.
+
 ## 2026-10-16 — Contratos v1.1 ratificados
 
 Los cambios A-1 a A-3 y B-1 a B-9 de `contratos-cambios-propuestos-v1.1.md` quedan ratificados por
