@@ -4,13 +4,14 @@
 
 Verificación de hablante con SpeechBrain para el pago por voz: dadas la voz del comando y la huella
 del usuario, decide si el hablante es el usuario y produce el `context.voice` que consume el motor
-(`decision-engine`). La voz es una verificación adicional, no la barrera principal: si una
-grabación del usuario pasa como `VERIFIED`, con destinatario conocido y dentro del presupuesto el
-motor NO pide PIN — contra una grabación protegen el tope del grant de presupuesto (SEG-1/SEG-5),
-el "sí" hablado (SEG-2) y `highAmountThreshold` (SEG-6, 100.000 COP decididos en X-4,
-2026-10-17). El PIN protege
-cuando la voz no se verifica (D3). Todo corre en Python dentro del backend, no en un servicio
-aparte.
+(`decision-engine`). Con el desafío de confirmación (propuesta aprobada 2026-10-17) también
+verifica la voz de la respuesta al desafío (`confirmation.voice`). La voz es una verificación
+adicional, no la barrera principal: si una grabación del usuario pasa como `VERIFIED`, con
+destinatario conocido y dentro del presupuesto el motor NO pide PIN — contra una grabación protegen
+el tope del grant de presupuesto (SEG-1/SEG-5), la frase del desafío dicha en vivo (SEG-2, 2026-10-17)
+o el "sí" cuando el desafío está apagado, y `highAmountThreshold` (SEG-6, 100.000 COP decididos en
+X-4, 2026-10-17). El PIN protege cuando la voz no se verifica (D3). Todo corre en Python dentro del
+backend, no en un servicio aparte.
 
 ## ADDED Requirements
 
@@ -125,13 +126,29 @@ SHALL ser en el borde: `score >= umbral` ⇒ `VERIFIED` y `score < umbral` ⇒ `
 - **WHEN** se verifica
 - **THEN** `verify` devuelve `NOT_AVAILABLE`: no hay audio suficiente para decidir (NO `BELOW_THRESHOLD`, que significaría "otra persona")
 - **AND** el motor pide PIN
-- **AND** D4: la verificación corre solo sobre el comando, nunca sobre el "sí"
+- **AND** D4: la verificación corre sobre el comando y, en modo `CHALLENGE`, sobre la respuesta al desafío — nunca sobre el "sí" (D4, propuesta 2026-10-17)
 
 Nota (experimentos ML 2, 17 oct, 3 personas; **[DECIDIDO 2026-10-17]**): el umbral se mantiene en
 **0.45** — queda entre el impostor máximo 0.405 y el genuino mínimo 0.508 (con la huella promedio,
 estrategia A); a 0.55 hubo 3 falsos rechazados. Sigue configurable y se recalibra en H3 con el
 micrófono de solapa. Riesgo: el margen (+0.104) es pequeño y la muestra es de 3 personas — repetir
 el experimento con más personas queda en los puntos abiertos del story.
+
+### Requirement: Verificación de la respuesta al desafío
+
+Con la confirmación por desafío (`confirmation.mode == "CHALLENGE"`, propuesta aprobada
+**[DECIDIDO 2026-10-17, presencial]**), la verificación SHALL correr también sobre el audio de la
+respuesta al desafío: el orquestador llama `verify` con ese audio y el resultado va en
+`confirmation.voice`; la verificación del comando se conserva en `context.voice`. La frase del
+banco dura ~3 s de voz útil, sobre `minVerifySeconds`. En `mode == "REPLY"` el "sí" sigue sin
+verificarse (D4).
+
+#### Scenario: La voz del desafío se verifica
+
+- **GIVEN** una confirmación en modo `CHALLENGE` cuya respuesta repite la frase pedida (~3 s de voz útil)
+- **WHEN** el orquestador llama `verify` con el audio de la respuesta
+- **THEN** el resultado va en `confirmation.voice` y el motor lo usa en la fase `CONFIRMATION` (con `phraseScore` sobre el corte y voz `VERIFIED` ⇒ `PAY`; sin voz verificada ⇒ PIN)
+- **AND** en `mode == "REPLY"` el "sí" no se verifica (D4); `context.voice` del comando no cambia
 
 ### Requirement: Una verificación a la vez
 
@@ -198,18 +215,17 @@ internet (pesos en caché local) **[DECIDIDO 2026-10-17]** (x0_entorno, 16 oct).
 
 ### Requirement: Fuera de alcance: anti-spoofing
 
-H2 MUST NOT incluir anti-spoofing (X-4): una grabación del usuario podría pasar la verificación.
-Es un riesgo conocido y documentado: contra una grabación protegen el tope del grant de
-presupuesto (SEG-1/SEG-5), el "sí" hablado (SEG-2) y `highAmountThreshold` (SEG-6, valor de X-4);
-el motor NO pide PIN si pasa con destinatario conocido y dentro del presupuesto (evidencia:
-experimentos ML 2, 17 oct — 1 de 3 reproducciones desde el celular pasó como `VERIFIED` con la
-huella promedio).
+El anti-spoofing MUST NO entrar en H2 (X-4): una grabación del usuario podría pasar la verificación.
+Contra una grabación protegen el tope del grant de presupuesto (SEG-1/SEG-5), la frase del desafío
+(SEG-2, modo `CHALLENGE` **[DECIDIDO 2026-10-17]**) o el "sí" cuando está apagado, y
+`highAmountThreshold` (SEG-6, X-4). El motor NO pide PIN si la grabación pasa con destinatario
+conocido y dentro del presupuesto (X-4: 1 de 3 pasó).
 
 #### Scenario: Riesgo documentado
 
 - **GIVEN** un atacante con una grabación del usuario, destinatario conocido y presupuesto suficiente
 - **WHEN** se verifica y la grabación pasa como `VERIFIED`
 - **THEN** el motor NO pide PIN: la decisión sale de las reglas restantes
-- **AND** contra la grabación protegen el tope del grant de presupuesto (SEG-1/SEG-5), el "sí" hablado (SEG-2) y `highAmountThreshold` (SEG-6, 100.000 COP — X-4, 2026-10-17)
+- **AND** contra la grabación protegen el tope del grant de presupuesto (SEG-1/SEG-5), la frase del desafío (SEG-2, modo `CHALLENGE`) o el "sí" cuando está apagado, y `highAmountThreshold` (SEG-6, 100.000 COP — X-4, 2026-10-17)
 - **AND** evidencia: de 3 reproducciones desde el celular, 1 pasó (coseno 0.506; los otros 0.338 y 0.417) — experimentos ML 2, 17 oct, 3 personas
 - **AND** es un riesgo conocido y documentado (X-4, fuera de alcance en H2)
