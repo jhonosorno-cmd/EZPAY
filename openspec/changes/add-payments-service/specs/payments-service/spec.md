@@ -334,7 +334,9 @@ Si todas las validaciones pasan, `POST /v1/payments` SHALL crear el outgoing pay
 Los access tokens duran 600 s. El servicio SHALL rotarlos cuando están por vencer, ante un `401`,
 o ante un `403` del servidor cuyo `debitAmount` entra en lo que queda del grant, reintentando una
 vez en cada caso. Si no puede rotarlo, MUST responder `401 GRANT_INVALID` para que el cliente pida
-un grant nuevo. [VERIFICAR] `token.rotate` en E4.
+un grant nuevo. Verificado en la Test Wallet (`payments/experiments/weekly-interval-and-token.md`,
+sección P4): `token.rotate` sobre un token vencido es aceptado (nuevo `expires_in` de 600 s) y el
+token viejo queda inusable de inmediato.
 
 #### Scenario: Grant usado después de 10 minutos
 - **GIVEN** un grant ACTIVE cuyo access token se emitió hace 11 minutos

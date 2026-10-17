@@ -107,11 +107,10 @@ la quote nueva tenga `exceedsRemaining: true`.
 ### Requirement: Reautorización puntual por exceso de límite
 Ante `exceedsRemaining: true` en la quote, o `403 LIMIT_EXCEEDED` de `POST /v1/payments`, el
 cliente SHALL pedir un **grant puntual**: `POST /v1/grants` con `limit.debitAmount` igual al
-`debitAmount` de la quote que excedió y `limit.interval` semanal de una sola repetición
-(`R1/<hoy 00:00:00Z>/P1W`); el turno pasa a `AWAITING_AUTHORIZATION`.
-Tras el callback y el `/continue` exitoso, recotiza con el `grantId` del puntual; si la quote
-nueva entra, paga con clave nueva. El grant de presupuesto queda intacto y se sigue usando para
-los pagos siguientes.
+`debitAmount` de la quote que excedió y `limit.interval` semanal de una sola repetición; el
+turno pasa a `AWAITING_AUTHORIZATION`. Tras el callback y el `/continue` exitoso, recotiza con
+el `grantId` del puntual; si la quote nueva entra, paga con clave nueva. El grant de
+presupuesto queda intacto y se sigue usando para los pagos siguientes.
 
 #### Scenario: Señal preventiva en la quote
 - **GIVEN** una quote con `exceedsRemaining: true` y la confirmación hablada del usuario ("sí")

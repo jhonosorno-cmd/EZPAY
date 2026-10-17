@@ -204,10 +204,11 @@ y `/quotes` y `/payments` ya reciben el `grantId` que Python decide pasar.
   general §3).
 - *Alternativa descartada:* ampliar el grant de presupuesto a `max(límite original, monto)`
   dejaba el restante en 0 y borraba el presupuesto autorizado una sola vez.
-- *Ciclo de vida:* el grant puntual **vence por semana**: se pide con `limits.interval`
-  `R1/<inicio>/P1W` y el servicio lo vence por su cuenta con `load()` + `currentPeriod` cuando
-  se agota la repetición. Si el equipo confirma la cancelación al usarse (decisión pendiente),
-  sigue disponible `DELETE /v1/grants/{grantId}` (A-1).
+- *Ciclo de vida:* el grant puntual se **cancela** con `DELETE /v1/grants/{grantId}` (A-1)
+  cuando se usó en un pago completado, cuando la intención se descarta o cuando lo reemplaza
+  otro puntual (como ya lo especifica `add-payments-client`); se pide con `limits.interval`
+  `R1/<inicio>/P1W` y el vencimiento semanal (`load()` + `currentPeriod`) es la red de
+  seguridad si la cancelación no ocurre.
 - *Evidencia de los experimentos del 17 oct (`payments/experiments/*.md`):*
   (i) la Test Wallet **acepta** `R1/<inicio>/P1W` junto con `debitAmount` y lo devuelve en el
   grant (`weekly-interval-and-token.md`, sección P1); el vencimiento real a 7 días no es
