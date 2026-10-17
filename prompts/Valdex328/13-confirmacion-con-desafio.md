@@ -78,6 +78,54 @@ Después de esto, que el builder empiece a implementar el desafío. Toma casos s
 Cuando esté hecho, me dices, ejecuto, leemos los resultados y lo implementamos todo.
 ````
 
+## Prompt 11 (resultados de las pruebas del motor)
+
+````text
+Mira la salida, leela y continúa:
+
+**.....................................................................................................................................................................Situaciones NEW aún no en voice.phrases.Situation: ['CONFIRM_CHALLENGE', 'CONFIRM_CHALLENGE_OVERRUN', 'CHALLENGE_RETRY', 'CHALLENGE_FAILED']**
+
+**.......**
+
+Ran 172 tests in 0.464s
+
+OK
+
+....................................................................................................................................................... [ 17%]
+
+.....................................................................................ss................................................................ [ 34%]
+
+....................................................................................................................................................... [ 51%]
+
+....................................................................................................................................................... [ 68%]
+
+....................................................................................................................................................... [ 85%]
+
+.....................................................................................................................................                   [100%]
+
+886 passed, 2 skipped in 9.00s
+
+(.venv) PS C:\Users\danie\Desktop\Hackatons\Interledger\EZPAY\api>
+````
+
+## Prompt 12 (aviso a Voz y Pagos, cambios nuevos y revisión de la spec de Voz)
+
+````text
+Comenta en el issue #12 mencionando a Sebastián que faltan CONFIRM_CHALLENGE_OVERRUN y CHALLENGE_FAILED en phrases.py, y a Alexander con lo que el orquestador debe pasar en context.confirmation (incluida la nota del say en fase COMMAND)
+
+Luego revisa nuevos cambios que se hayan realizado en el repo.
+
+Luego revisa la spec confirmation-challenge de Sebastián contra decision-engine y dime si hay contradicciones.
+
+Si no, empezamos con las specs de H3 realizadas por el constructor.
+````
+
+## Prompt 13 (qué falta del desafío en el rol)
+
+````text
+hay que hacer algo más para la implementación del desafío por mi parte?
+````
+
 ---
 
 Registro: 2026-10-17 · transcripción literal de la sesión "Hachathon Interledger EZPAY". La instrucción que la IA redactó para el Constructor de Specs está en `10-instrucciones-a-agentes.md` (A13) y para el Builder en el mismo archivo (B11).
