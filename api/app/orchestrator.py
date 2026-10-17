@@ -1,4 +1,4 @@
-﻿"""Orquestador del turno (spec turn-orchestration): intención (Voz) → agenda →
+"""Orquestador del turno (spec turn-orchestration): intención (Voz) → agenda →
 verificación de voz → quote con el cliente de Node → motor de decisión →
 transición de TurnState → llamadas a Node.
 
