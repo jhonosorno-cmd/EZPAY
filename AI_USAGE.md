@@ -29,6 +29,7 @@ El texto real de los prompts está en [`prompts/`](prompts/).
 | `api/pin/pin.py`, `api/scripts/make_pin_hash.py`, `api/scripts/reset_pin_lock.py`, `api/.env.example` | ML 2 | Claude Code y OpenCode (Builder) | PIN mínimo: hash con sal, contadores, bloqueo, alta y reinicio. Prompts: `prompts/Valdex328/03-specs-h1-motor-y-pin.md` y `prompts/Valdex328/10-instrucciones-a-agentes.md` (B1 y B2) | 35 pruebas pasan: `PYTHONPATH=. python -m unittest discover -s tests/pin` (desde `api/`) |
 | `api/tests/decision/`, `api/tests/pin/` | ML 2 | Claude Code y OpenCode (Builder) | Pruebas de los escenarios de los specs. Prompts: `prompts/Valdex328/10-instrucciones-a-agentes.md` (B1 a B5) | Se corren con los comandos de las dos filas anteriores |
 | `api/README-ml2.md` | ML 2 | OpenCode (Builder) | Cómo correr las pruebas y cómo usa el orquestador el motor y el PIN. Prompts: `prompts/Valdex328/10-instrucciones-a-agentes.md` (B4 y B5) | Los comandos documentados se corrieron |
+| `verificacion-ml2/textos-enrolamiento.md` | ML 2 | Claude Code | Textos del consentimiento y frases del enrolamiento para la web. Prompts: `prompts/Valdex328/08-textos-enrolamiento.md` | Criterios de PRIV-1, PRIV-2, Ley 1581 y duración de las frases, en el mismo archivo |
 | `prompts/Valdex328/`, `prompts/pre-evento/Valdex328/` | ML 2 | Claude Code | Registro de los prompts. Prompts: `prompts/Valdex328/06-prompts-y-ai-usage.md` | Texto literal de las transcripciones |
 
 ## Archivos con mínima o ninguna IA
