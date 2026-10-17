@@ -12,3 +12,15 @@ ctranslate2==4.8.3
 torch==2.14.1+cpu
 torchaudio==2.11.0+cpu
 speechbrain==1.1.2
+
+# Backend FastAPI (api/app/, rutas del Contrato B y orquestador), 2026-10-17. httpx lo usa además
+# payments_client/. pyyaml, jsonschema y pytest solo para las pruebas (tests/app valida contra
+# openapi/contract-b.yaml; tests/voice usa pytest). En macOS torch no tiene la variante +cpu:
+# instalar torch==2.14.1 y torchaudio sin el sufijo.
+fastapi==0.118.0
+uvicorn==0.37.0
+python-multipart==0.0.20
+httpx==0.28.1
+pyyaml==6.0.2
+jsonschema==4.25.1
+pytest==8.4.2
