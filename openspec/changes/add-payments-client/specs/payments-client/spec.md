@@ -80,6 +80,15 @@ compartidos). Si ocurrió durante `POST /v1/payments`, el reintento conserva la 
 - **THEN** el cliente lo trata igual que `502 UPSTREAM_ERROR`
 - **AND** el reintento usa la misma `Idempotency-Key` y el mismo `quoteId`
 
+### Requirement: `INVALID_REQUEST` es un error del llamador
+El cliente SHALL tratar `400 INVALID_REQUEST` de Node (Contrato v1.2, AB-1) como un error del propio llamador: lo eleva como error de negocio por `error.code`, sin reintentarlo y sin tratarlo como `UPSTREAM_ERROR` ni como caída de Node.
+
+#### Scenario: Petición rechazada por mal formada
+- **GIVEN** un `POST /v1/grants` que Node rechaza con `400 INVALID_REQUEST`
+- **WHEN** el cliente recibe la respuesta
+- **THEN** eleva `PaymentsError` con el código `INVALID_REQUEST`
+- **AND** no reintenta ni lo trata como `UPSTREAM_ERROR`
+
 ### Requirement: Quote no encontrada no se recotiza automáticamente
 Ante `404 QUOTE_NOT_FOUND` de `POST /v1/payments`, el cliente MUST NOT recotizar
 automáticamente (Contratos § Contrato A › `POST /payments`: una quote ya pagada, o con un pago
