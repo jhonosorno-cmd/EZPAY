@@ -9,6 +9,7 @@ orquestador, no el motor.
 from datetime import datetime, timezone
 
 from .models import (
+    ConfirmationMode,
     Context,
     Decision,
     DecisionType,
@@ -124,11 +125,37 @@ def _decide_command(context) -> Decision:
     return Decision(DecisionType.ASK_CONFIRM, reason)
 
 
+def _frase_coincide(context) -> bool:
+    """La frase del desafío coincide: `phrase_score >= challengePhraseMatchMin`,
+    con el borde INCLUSIVO (0.80 exacto cuenta; None no coincide). La
+    coincidencia la calcula Voz con phrase_match; el motor solo compara el número."""
+    confirmation = context.confirmation
+    return (
+        confirmation is not None
+        and confirmation.phrase_score is not None
+        and confirmation.phrase_score >= context.config.challenge_phrase_match_min
+    )
+
+
+def _confirmacion_con_exceso(context, reason_ok) -> Decision:
+    """Cierre del desafío correcto y del PIN tras el desafío: la quote es
+    obligatoria (contexto inválido si falta); el exceso pide autorización (SEG-5)."""
+    if context.quote is None:
+        raise InvalidContextError()
+    if context.quote.exceedsRemaining:
+        return Decision(DecisionType.REQUIRE_AUTH, Reason.CONFIRMED_NEEDS_WALLET_AUTH)
+    return Decision(DecisionType.PAY, reason_ok)
+
+
 def _decide_pin(context) -> Decision:
     pin = context.pin
     if pin.locked:
         return Decision(DecisionType.REJECT, Reason.PIN_LOCKED)
     if pin.result is PinVerifyResult.OK:
+        if context.confirmation is not None and context.confirmation.mode is ConfirmationMode.CHALLENGE \
+                and _frase_coincide(context):
+            # el PIN reemplaza a la voz; el consentimiento ya lo dio la frase (SEG-2)
+            return _confirmacion_con_exceso(context, Reason.CONFIRMED_WITH_PIN)
         _, past_window = _pending_flags(context)
         reason = Reason.PENDING_PAYMENT_UNCONFIRMED if past_window else Reason.PIN_CORRECT
         return Decision(DecisionType.ASK_CONFIRM, reason)
@@ -140,6 +167,9 @@ def _decide_pin(context) -> Decision:
 
 
 def _decide_confirmation(context) -> Decision:
+    confirmation = context.confirmation
+    if confirmation is not None and confirmation.mode is ConfirmationMode.CHALLENGE:
+        return _decide_confirmation_challenge(context)
     reply = context.reply
     if reply is Reply.YES:
         if context.quote is None:
@@ -152,6 +182,22 @@ def _decide_confirmation(context) -> Decision:
     if context.unclearReplies == 0:
         return Decision(DecisionType.ASK_CONFIRM, Reason.REPLY_UNCLEAR_ASK_AGAIN)
     return Decision(DecisionType.REJECT, Reason.REPLY_UNCLEAR_REJECTED)
+
+
+def _decide_confirmation_challenge(context) -> Decision:
+    """Fase CONFIRMATION en modo CHALLENGE (B11): en orden, gana la primera
+    regla que aplica. SEG-3: solo frase que coincide + voz VERIFIED paga aquí."""
+    confirmation = context.confirmation
+    if context.reply is Reply.NO:
+        return Decision(DecisionType.REJECT, Reason.USER_DECLINED)
+    if _frase_coincide(context):
+        voice = confirmation.voice
+        if voice is None or voice.status is not VoiceStatus.VERIFIED:
+            return Decision(DecisionType.ASK_PIN, Reason.CHALLENGE_VOICE_NOT_VERIFIED)
+        return _confirmacion_con_exceso(context, Reason.CONFIRMED)
+    if confirmation.challenge_attempts == 0:
+        return Decision(DecisionType.ASK_CONFIRM, Reason.CHALLENGE_RETRY)
+    return Decision(DecisionType.REJECT, Reason.CHALLENGE_FAILED)
 
 
 def decide(context: Context) -> Decision:

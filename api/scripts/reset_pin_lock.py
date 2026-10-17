@@ -1,26 +1,31 @@
-"""Script de reinicio del bloqueo del PIN (spec pin-validation).
+"""Reinicio del bloqueo del PIN sobre el estado PERSISTIDO (H2, tarea 1.4).
 
-Levanta el bloqueo y pone el contador global de fallos en 0.
+Escribe {"globalFailures": 0, "locked": false} en el estado persistido
+(EZPAY_PIN_DATA_DIR o api/.data/pin/) y también REPARA un archivo corrupto o
+ilegible (que deja el validador bloqueado por falla cerrado).
 
-H1: el contador global vive en la memoria del proceso del backend, así que
-correr este script como proceso aparte NO afecta al backend en marcha. El
-reinicio real en H1 es: reiniciar el backend, o llamar a `reset_pin_lock()`
-dentro del proceso (por ejemplo desde una ruta de administración del
-orquestador). Persistir el contador y el bloqueo se difiere a H2.
+El backend que está corriendo mantiene su estado en memoria: para levantarle
+el bloqueo, reiniciarlo después de correr este script (o llamar a
+`reset_pin_lock()` dentro del proceso, por ejemplo desde una ruta de
+administración del orquestador, que también persiste).
 """
+import argparse
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from pin.pin import default_validator, reset_pin_lock
+from pin.store import PinStore
 
 
 def main() -> None:
-    reset_pin_lock()
-    print("Bloqueo del PIN levantado y contador global de fallos en 0 (instancia local).")
-    print("H1: el contador del backend vive en la memoria de su proceso; reinicia el")
-    print("backend o llama a reset_pin_lock() dentro del proceso para el reset real.")
+    parser = argparse.ArgumentParser(description="Reset the persisted PIN lock state.")
+    parser.add_argument("--data-dir", default=None,
+                        help="Data directory (default: EZPAY_PIN_DATA_DIR or api/.data/pin/)")
+    args = parser.parse_args()
+    PinStore(args.data_dir).reset()
+    print("Estado del PIN reiniciado: globalFailures=0, locked=false (persistido).")
+    print("Si el backend está corriendo, reinicialo para que recargue el estado.")
 
 
 if __name__ == "__main__":

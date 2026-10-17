@@ -46,7 +46,7 @@ def test_miles_con_decimales():
 
 
 @pytest.mark.parametrize("text,value", [
-    ("1.000.000", "100000000"), ("0,10", "10"), ("10,500", "1050"), ("50", "5000"),
+    ("1.000.000", "100000000"), ("0,10", "10"), ("50", "5000"),
 ])
 def test_escritos_extra(text, value):
     assert ok(text).value == value
@@ -106,7 +106,7 @@ def test_caso_que_un_float_redondea():
 
 
 def test_cero_sobrante():
-    assert ok("10,500").value == "1050"
+    assert err("10,500") == AMBIG  # antes 10,50; cambio: puede ser 10.500 con coma de miles (ver "Coma con tres dígitos")
 
 
 def test_escala_cero_con_decimales():
@@ -355,3 +355,16 @@ def test_h8_el_detector_funciona():
 
 def test_h8_amounts_no_usa_float_round_ni_decimal():
     assert _forbidden(inspect.getsource(amounts_module)) == []
+
+
+# --- Coma con tres dígitos: Groq la escribe como separador de miles ("$150,000"). Esperaba 150.000; pasaba 150 pesos.
+# Cambio z: es ambigua y se vuelve a preguntar (antes "20,000" se leía como 20 pesos, H-4).
+@pytest.mark.parametrize("text", ["20,000", "1,000", "150,000", "$150,000", "999,990", "10,500", "50,000 pesos"])
+def test_coma_seguida_de_tres_digitos_es_ambigua(text):
+    assert err(text) == AMBIG
+
+
+@pytest.mark.parametrize("text,value", [("10,50", "1050"), ("10,5", "1050"), ("1,5", "150"), ("0,500", "50"),
+                                         ("1.150,50", "115050"), ("20.000", "2000000"), ("150.000", "15000000")])
+def test_otras_comas_y_los_puntos_de_miles_siguen_igual(text, value):
+    assert ok(text).value == value
