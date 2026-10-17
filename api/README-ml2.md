@@ -11,7 +11,7 @@ los paquetes).
 
 ```
 decision/
-  models.py        # Context, Decision (to_dict), Reason (enum cerrado, 28), Amount (CONV-1),
+  models.py        # Context, Decision (to_dict), Reason (enum cerrado, 32), Amount (CONV-1),
                    # InvalidContextError, parse_instant (ISO 8601 fail-closed)
   engine.py        # decide(context) -> Decision: función pura; tablas ordenadas de
                    # las fases COMMAND, PIN y CONFIRMATION (D1, D2)
@@ -109,7 +109,7 @@ confirmation = Confirmation(mode="CHALLENGE", phrase_score=0.93,
 #    ... y lo manda dentro del dict del context (claves camelCase:
 #    {"mode": "CHALLENGE", "phraseScore": 0.93, "voice": {...}, "challengeAttempts": 0})
 
-# 6. enrolamiento (POST /voice/enrollment): 3 muestras, consentimiento explícito
+# 6. enrolamiento (POST /api/enrollment del Contrato B): 3 muestras, consentimiento explícito
 SpeakerEnrollment(verifier).enroll(samples, consent=True)  # {"enrolled": True} o 400 con code
 ```
 
@@ -135,9 +135,10 @@ SpeakerEnrollment(verifier).enroll(samples, consent=True)  # {"enrolled": True} 
   NOMBRE de la situación del catálogo de Voz; los textos viven solo en
   `voice/phrases.py`. `VOICE_SITUATIONS_EXISTING` son las 21 situaciones que
   `Situation` ya tiene hoy; `VOICE_SITUATIONS_NEW` son las 17 que Voz agregará
-  (13 del 16 oct + las 4 del desafío de voz, B11; las 4 de `PENDING_VOZ_SITUATIONS`
-  todavía NO existen en `Situation` y hay una prueba que vigila quitárselas del
-  set cuando Voz las agregue). Devuelve `None` solo para `CONFIRMED` y
+  (13 del 16 oct + las 4 del desafío de voz, B11). Voz ya agregó `CONFIRM_CHALLENGE`
+  y `CHALLENGE_RETRY`; las 2 de `PENDING_VOZ_SITUATIONS` (`CONFIRM_CHALLENGE_OVERRUN`
+  y `CHALLENGE_FAILED`) todavía NO existen en `Situation` y hay una prueba que vigila
+  quitárselas del set cuando Voz las agregue). Devuelve `None` solo para `CONFIRMED` y
   `CONFIRMED_WITH_PIN` (el `say` sale del resultado del pago). Una variante que
   necesita la `quote` (`CONFIRM`/`AUTH_OVERRUN`, `PENDING_PAYMENT_UNCONFIRMED*`,
   `CONFIRM_CHALLENGE*`), el `amountError` o las opciones de resolución y no los

@@ -447,7 +447,7 @@ catálogo (en español); el texto nunca lo genera el motor ni el LLM.
 | --- | --- |
 | `highAmountThreshold` = 100.000 COP (`{value: "10000000", assetCode: "COP", assetScale: 2}`) | **[DECIDIDO 2026-10-17]** (X-4: 1 de 3 reproducciones pasó como `VERIFIED`) — la regla 8 pide PIN dentro del presupuesto a partir de 100.000 COP; el exceso no cambia (SEG-5) |
 | Valores de `minIntentConfidence` y `minTranscriptConfidence` (la regla 2b está decidida; por defecto `null` = desactivado en H1; el corte de transcripción MUST ser más flexible que el de intención) | **[PARA DECIDIR]** — rol Voz, tras su batería |
-| Voz agrega las 17 situaciones de `say` (13 del 16 oct + las 4 del desafío: `CONFIRM_CHALLENGE`, `CONFIRM_CHALLENGE_OVERRUN`, `CHALLENGE_RETRY`, `CHALLENGE_FAILED`), el **banco de frases del desafío** (30 o más frases de 6 a 9 palabras) y cambia el texto de `PIN_KEYBOARD` | **[PENDIENTE de Voz]** — no bloquea al motor |
+| Voz ya agregó **15** de las 17 situaciones (incluidas `CONFIRM_CHALLENGE` y `CHALLENGE_RETRY`); faltan `CONFIRM_CHALLENGE_OVERRUN` y `CHALLENGE_FAILED`, vigiladas por `PENDING_VOZ_SITUATIONS` (`api/decision/say_map.py`); el **banco de frases** del desafío (30 o más frases de 6 a 9 palabras) ya existe; falta el texto nuevo de `PIN_KEYBOARD` | **[PENDIENTE de Voz]** — no bloquea al motor |
 
 ### speaker-verification y voice-enrollment (H2)
 | Punto | Dueño / estado |
