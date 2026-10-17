@@ -12,6 +12,7 @@
 // Para recorrer los ejemplos oficiales del contrato, usar el mock de Prism: `npm run mock:prism`.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { randomUUID } from "node:crypto"
+import { PIN_ATTEMPTS_EXHAUSTED, PIN_PROMPT, pinRetrySay } from "./phrases"
 
 const PORT = 8000
 const WEB = "http://localhost:5173"
@@ -76,7 +77,7 @@ function startCommand(s: Session, text: string, viaText: boolean) {
 }
 
 function afterRecipient(s: Session, transcript: string | null) {
-  if (s.viaText) return turn(s, "AWAITING_PIN", "Escribe tu PIN de cuatro números.", { transcript })
+  if (s.viaText) return turn(s, "AWAITING_PIN", PIN_PROMPT, { transcript })
   return confirm(s, transcript)
 }
 
@@ -130,8 +131,8 @@ function handleTurn(s: Session, text: string | null, hasAudio: boolean, kind: st
       if (hasAudio) throw { status: 400, code: "AUDIO_OR_TEXT_REQUIRED" } // el audio se descarta en el PIN
       if (t === PIN) return confirm(s, null)
       s.pinTries++
-      if (s.pinTries >= 3) { s.pending = null; return turn(s, "REJECTED", "PIN incorrecto tres veces. Cancelé el envío.") }
-      return turn(s, "AWAITING_PIN", `PIN incorrecto. Te quedan ${3 - s.pinTries} intentos.`)
+      if (s.pinTries >= 3) { s.pending = null; return turn(s, "REJECTED", PIN_ATTEMPTS_EXHAUSTED) }
+      return turn(s, "AWAITING_PIN", pinRetrySay(3 - s.pinTries))
     }
     case "AWAITING_RECIPIENT_CHOICE": {
       const c = CONTACTS.find((x) => x.alias === t || t.includes(x.alias.split("-")[1]!))
