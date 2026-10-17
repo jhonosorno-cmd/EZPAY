@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .config import ASSET_CODE, ASSET_SCALE, CORS_ORIGIN, LOG_NAME, PLACEHOLDER_INTERACT_URL
+from .config import CORS_ORIGIN, LOG_NAME, PLACEHOLDER_INTERACT_URL, asset_code, asset_scale
 from .orchestrator import Deps, default_deps, handle_turn
 from .sessions import Session, SessionNotFound, SessionStore
 from .states import TurnState
@@ -59,7 +59,7 @@ def _valid_amount(raw) -> bool:
 
 
 def _zero_amount(like: dict) -> dict:
-    return {"value": "0", "assetCode": like.get("assetCode", ASSET_CODE), "assetScale": like.get("assetScale", ASSET_SCALE)}
+    return {"value": "0", "assetCode": like.get("assetCode", asset_code()), "assetScale": like.get("assetScale", asset_scale())}
 
 
 def create_app(
@@ -158,7 +158,7 @@ def create_app(
 
     @app.get("/api/budget")
     async def get_budget():
-        limit = budget.get("limit") or {"value": "0", "assetCode": ASSET_CODE, "assetScale": ASSET_SCALE}
+        limit = budget.get("limit") or {"value": "0", "assetCode": asset_code(), "assetScale": asset_scale()}
         entry = {"debitAmount": limit}
         if budget.get("interval"):
             entry["interval"] = budget["interval"]
