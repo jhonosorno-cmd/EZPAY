@@ -1,5 +1,6 @@
 // Experiment A: weekly interval (P1), spent delay (P5), expired-token rotation (P4), revoke (P3 part 1).
-// Grant cap: 5.000,00 COP (value "500000"). Payments: 500,00 COP (value "50000") each, max 3 here.
+// Grant cap: 5.000,00 COP (value "500000"). Payments: 500,00 COP each; up to 3 in this script,
+// 5 across the whole unit (authorized by the supervisor).
 // Run: npm run exp:weekly   (owner approves in the browser; 5.000 COP = APROBAR)
 import {
   dryRunGuard, errInfo, grantSpent, money, maskWallet, openCallbackListener, openInBrowser,
@@ -8,7 +9,7 @@ import {
 } from './lib.js'
 import type { PendingGrant } from '@interledger/open-payments'
 
-if (dryRunGuard('weekly-interval-and-token')) process.exit(0)
+if (await dryRunGuard('weekly-interval-and-token')) process.exit(0)
 
 const CAP = '500000'
 const PAY = '50000'
@@ -16,6 +17,7 @@ const PAY = '50000'
 type Variant = { interval: string; accepted: boolean; err?: { status?: number; code?: string; description?: string } }
 type Echo = { interval?: string; debitValue?: string }
 type SeriesEntry = { second: number; value: string | null }
+type PaymentRecord = { label: string; made: boolean; detail: string }
 
 const state = {
   variants: [] as Variant[],
@@ -28,12 +30,12 @@ const state = {
   series: [] as SeriesEntry[],
   reflectedSeconds: null as number | null,
   expiredAttempt: null as string | null,
-  expiredAttemptMadePayment: false,
   rotateResult: null as string | null,
   oldTokenAfterRotate: null as string | null,
   revokeResult: null as string | null,
   revokeBlocks: 'unknown' as 'yes' | 'no' | 'unknown',
   payment3: null as string | null,
+  payments: [] as PaymentRecord[],
   error: null as string | null,
 }
 
@@ -72,6 +74,7 @@ async function flow(): Promise<void> {
   log('PASO b: abriendo la wallet en el navegador (5.000,00 COP = APROBAR)...')
   openInBrowser(pending.interact.redirect!)
   const params = await waitCallback(listener, 'aprobación del grant A')
+  await listener.close() // frees 5173 for the other experiments during the 11-minute wait
   const finalized = await continueGrant(w, pending, params)
   state.expires_in = finalized.expiresIn
   state.manageExists = finalized.manageUrl !== null
@@ -85,6 +88,7 @@ async function flow(): Promise<void> {
   state.spentBefore = before.spentDebit
   log(`PASO c: gastado antes del pago (consulta directa): ${state.spentBefore ?? 'no informado'}`)
   const pay1 = await payOnce(w, PAY, finalized.accessToken)
+  state.payments.push({ label: 'Pago 1 (grant A, token original)', made: true, detail: `debit=${money(pay1.debitValue, s)}` })
   log(`PASO c: pago 1 OK — debit=${money(pay1.debitValue, s)} receive=${money(pay1.receiveValue, s)}`)
   const t0 = Date.now()
   for (;;) {
@@ -106,10 +110,11 @@ async function flow(): Promise<void> {
   try {
     const p2 = await payOnce(w, PAY, oldToken)
     state.expiredAttempt = `el pago con el token VENCIDO SUCEDIÓ (debit=${money(p2.debitValue, s)})`
-    state.expiredAttemptMadePayment = true
+    state.payments.push({ label: 'Intento de pago con el token VENCIDO', made: true, detail: `debit=${money(p2.debitValue, s)} (hallazgo: el token vencido todavía pagó)` })
   } catch (e) {
     const info = errInfo(e)
     state.expiredAttempt = `pago con token vencido rechazado: status ${info.status ?? '?'} código ${info.code ?? '?'}`
+    state.payments.push({ label: 'Intento de pago con el token VENCIDO', made: false, detail: `status ${info.status ?? '?'} código ${info.code ?? '?'}` })
   }
   log(`PASO d: ${state.expiredAttempt}`)
   try {
@@ -120,6 +125,7 @@ async function flow(): Promise<void> {
     state.rotateResult = `token.rotate sobre token VENCIDO aceptado; expires_in nuevo=${r.access_token.expires_in ?? 'no informado'}; manage URL cambió: ${state.manageChangedOnRotate}`
     log(`PASO d: ${state.rotateResult}`)
     const pay2 = await payOnce(w, PAY, newToken)
+    state.payments.push({ label: 'Pago 2 con token rotado', made: true, detail: `debit=${money(pay2.debitValue, s)}` })
     log(`PASO d: pago 2 con token rotado OK — debit=${money(pay2.debitValue, s)}`)
     const probe = await grantSpent(w, oldToken).then((x) => ({ ok: true as const, spentDebit: x.spentDebit })).catch((e) => ({ ok: false as const, err: errInfo(e) }))
     state.oldTokenAfterRotate = probe.ok
@@ -147,9 +153,11 @@ async function flow(): Promise<void> {
       try {
         const p3 = await payOnce(w, PAY, newToken)
         state.payment3 = `el pago con el token revocado SUCEDIÓ (debit=${money(p3.debitValue, s)}) — hallazgo importante`
+        state.payments.push({ label: 'Pago 3 con el token revocado', made: true, detail: `debit=${money(p3.debitValue, s)}` })
       } catch (e) {
         const info = errInfo(e)
         state.payment3 = `el pago con el token revocado fue rechazado: status ${info.status ?? '?'} código ${info.code ?? '?'}`
+        state.payments.push({ label: 'Pago 3 con el token revocado', made: false, detail: `status ${info.status ?? '?'} código ${info.code ?? '?'}` })
       }
       log(`PASO e: ${state.payment3}`)
     } else {
@@ -190,12 +198,13 @@ function buildReport(): string[] {
     lines.push(`## P5 — retraso del gastado tras un pago (consulta directa, sin servicio)\n\nGastado antes del pago: ${state.spentBefore ?? 'no informado'}. Serie tras crear el pago (segundo, spentDebitAmount):\n\n| segundo | spentDebitAmount |\n|---|---|\n${state.series.map((x) => `| ${x.second} | ${x.value ?? 'error de consulta'} |`).join('\n')}\n\nEl pago se reflejó en ${state.reflectedSeconds !== null ? `${state.reflectedSeconds} s` : 'más de 30 s (no apareció)'}.`)
   }
   if (state.expiredAttempt) {
-    lines.push(`## P4 — rotación de un token vencido (>10 min)\n\n- Intento de pago con el token vencido: ${state.expiredAttempt}${state.expiredAttemptMadePayment ? ' **(creó un pago real)**' : ''}\n- ${state.rotateResult ?? 'no se llegó a rotar'}\n- ${state.oldTokenAfterRotate ?? 'no se probó el token viejo tras rotar (rotación no exitosa)'}`)
+    lines.push(`## P4 — rotación de un token vencido (>10 min)\n\n- Intento de pago con el token vencido: ${state.expiredAttempt}\n- ${state.rotateResult ?? 'no se llegó a rotar'}\n- ${state.oldTokenAfterRotate ?? 'no se probó el token viejo tras rotar (rotación no exitosa)'}`)
   }
   if (state.revokeResult) {
     lines.push(`## P3 (parte 1) — ¿token.revoke invalida de verdad el acceso?\n\n- ${state.revokeResult}\n- ${state.payment3 ?? ''}\n\n¿Bloquea el acceso?: ${state.revokeBlocks === 'yes' ? 'sí (la lectura quedó inusable)' : state.revokeBlocks === 'no' ? 'no (la lectura siguió funcionando)' : 'desconocido (el revoke mismo falló)'}.`)
   }
-  lines.push(`## Pagos reales de esta corrida\n\n- Pago 1 (dentro del experimento, ${money('50000', 2)} COP): realizado.\n- Pago 2 con token rotado: ${state.rotateResult?.includes('aceptado') ? 'realizado' : 'no realizado'}.\n- Pago 3 (solo si la lectura tras revoke no distinguió): ${state.payment3?.includes('SUCEDIÓ') ? 'realizado' : 'no realizado'}.`)
+  const made = state.payments.filter((p) => p.made)
+  lines.push(`## Pagos reales de esta corrida (tope de la unidad: 5 pagos de 500,00 COP)\n\n| pago | realizado | detalle |\n|---|---|---|\n${state.payments.map((p) => `| ${p.label} | ${p.made ? 'sí' : 'no'} | ${p.detail} |`).join('\n')}\n\nPagos reales hechos aquí: ${made.length}${made.length ? ` (${made.map((p) => p.label).join('; ')})` : ''}.`)
   if (state.error) lines.push(`## Error de la corrida\n\n${state.error}`)
   return lines
 }

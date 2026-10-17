@@ -7,7 +7,7 @@ import {
 } from './lib.js'
 import type { PendingGrant } from '@interledger/open-payments'
 
-if (dryRunGuard('reject-redirect')) process.exit(0)
+if (await dryRunGuard('reject-redirect')) process.exit(0)
 
 const CAP = '300000'
 
@@ -43,6 +43,7 @@ async function flow(): Promise<void> {
   log('PASO b: abriendo la wallet en el navegador (3.000,00 COP = RECHAZAR)...')
   openInBrowser(pending.interact.redirect!)
   const params = await waitCallback(listener, 'rechazo del grant B')
+  await listener.close() // frees 5173 for the next experiment
 
   state.names = [...params.keys()]
   const resultValue = params.get('result')

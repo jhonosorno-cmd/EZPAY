@@ -7,7 +7,7 @@ import {
 } from './lib.js'
 import type { PendingGrant } from '@interledger/open-payments'
 
-if (dryRunGuard('cancel-grant')) process.exit(0)
+if (await dryRunGuard('cancel-grant')) process.exit(0)
 
 const CAP = '400000'
 const PAY = '50000'
@@ -46,6 +46,7 @@ async function flow(): Promise<void> {
   log('PASO b: abriendo la wallet en el navegador (4.000,00 COP = APROBAR)...')
   openInBrowser(pending.interact.redirect!)
   const params = await waitCallback(listener, 'aprobación del grant C')
+  await listener.close() // frees 5173
   const finalized = await continueGrant(w, pending, params)
   state.expiresIn = finalized.expiresIn
   log(`PASO c: continue OK; expires_in=${state.expiresIn ?? 'no informado'}`)
@@ -104,7 +105,7 @@ function buildReport(): string[] {
   const lines: string[] = [
     REPORT_HEADER('Experimento C — ¿grant.cancel invalida de verdad el acceso? (P3 parte 2)'),
     `## Procedimiento\n\n1. Grant interactivo de 4.000,00 COP sin interval, aprobado por el dueño.\n2. continue OK (expires_in: ${state.expiresIn ?? 'no informado'}).\n3. Lectura de referencia con el access token antes de cancelar: ${state.readBefore !== null ? `aceptada (spentDebit=${state.readBefore})` : 'no realizada'}.`,
-    `## P3 (parte 2) — resultado\n\n- ${state.cancelResult ?? 'no se llegó a cancelar'}.\n- Lectura con el access token después de cancelar: ${state.readAfter ?? 'no realizada'}.\n- Pago con el access token después de cancelar: ${state.paymentResult ?? 'no realizado'}.`,
+    `## P3 (parte 2) — resultado\n\n- ${state.cancelResult ?? 'no se llegó a cancelar'}.\n- Lectura con el access token después de cancelar: ${state.readAfter ?? 'no realizada'}.\n- Pago con el access token después de cancelar: ${state.paymentResult ?? 'no realizado'}.\n\nPagos reales en esta corrida: ${state.paymentMade ? 1 : 0} de 500,00 COP (tope de la unidad: 5 pagos).`,
     `## Conclusión\n\n${state.readAlive === null ? 'Sin datos suficientes.' : state.readAlive ? 'grant.cancel NO revocó el access token: la lectura siguió funcionando; el grant queda cancelado en GNAP pero el token sigue operativo. Comparar con token.revoke en weekly-interval-and-token.md (sección P3 parte 1).' : 'grant.cancel revocó el acceso: la lectura con el access token quedó rechazada, igual que el efecto de token.revoke en el experimento A.'}`,
   ]
   if (state.error) lines.push(`## Error de la corrida\n\n${state.error}`)

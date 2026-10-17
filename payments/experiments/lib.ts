@@ -3,7 +3,8 @@
 // the PROCESS, never by these helpers. Every console/file output uses a strict
 // whitelist: no tokens, nonces, interact_ref, hash, keyId, interactUrl or
 // grant/continue/manage URLs. Wallet addresses are masked in all reports.
-import { writeFile } from 'node:fs'
+import { readFile, unlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { createServer, type Server } from 'node:http'
 import { randomUUID, type UUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
@@ -53,12 +54,48 @@ export function loadEnv(): { walletAddress: string; keyId: string; privateKey: s
   return { walletAddress: cfg.walletAddress, keyId: cfg.keyId, privateKey: cfg.privateKey }
 }
 
-/** `--dry-run`: validates imports and configuration without network and without browser. */
-export function dryRunGuard(name: string, extra = ''): boolean {
-  if (!process.argv.slice(2).includes('--dry-run')) return false
-  loadEnv()
-  console.log(`dry-run ${name}: configuración cargada (variables requeridas presentes), sin red, sin navegador, sin pagos.${extra ? ` ${extra}` : ''}`)
+/** `--dry-run` / `--self-test`: validates imports and configuration, exercises the report write
+ *  path (sample file in the OS temp dir, read back, deleted) and the callback listener
+ *  (open → simulated redirect → param names → close → re-open on the same port → close).
+ *  No real network, no browser, no payments. */
+export async function dryRunGuard(name: string, extra = ''): Promise<boolean> {
+  const argv = process.argv.slice(2)
+  if (!argv.includes('--dry-run') && !argv.includes('--self-test')) return false
+  const selfTestOnly = argv.includes('--self-test') && !argv.includes('--dry-run')
+  const checks: string[] = []
+  if (!selfTestOnly) {
+    loadEnv()
+    checks.push('configuración cargada (variables requeridas presentes)')
+  }
+  await reportWriteCheck()
+  checks.push('escritura de informe en temp, leído de vuelta y borrado OK')
+  await listenerSelfTest()
+  checks.push('listener: abrir → redirect simulado → nombres de parámetros OK → cerrar → reabrir en el mismo puerto sin EADDRINUSE → cerrar OK')
+  console.log(`dry-run ${name}: ${checks.join('; ')}. Sin red real, sin navegador, sin pagos.${extra ? ` ${extra}` : ''}`)
   return true
+}
+
+async function reportWriteCheck(): Promise<void> {
+  const file = `ezpay-exp-dryrun-${process.pid}.md`
+  const sample = '# dry-run\n\n- línea de muestra'
+  await writeReport(file, [sample], tmpdir())
+  const back = await readFile(join(tmpdir(), file), 'utf8')
+  if (!back.includes('línea de muestra')) throw new Fail('el informe de muestra no se leyó de vuelta')
+  await unlink(join(tmpdir(), file))
+}
+
+/** Loopback-only self test of the callback listener (never touches the wallet). */
+export async function listenerSelfTest(): Promise<void> {
+  const first = openCallbackListener()
+  await first.ready
+  await fetch(`http://127.0.0.1:${CALLBACK_PORT}/grant-callback?interact_ref=selftest&hash=selftest`)
+  const params = await first.promise
+  if (params.get('interact_ref') !== 'selftest' || params.get('hash') !== 'selftest')
+    throw new Fail('el listener no devolvió los parámetros simulados')
+  await first.close()
+  const second = openCallbackListener()
+  await second.ready
+  await second.close()
 }
 
 export async function openWallet(): Promise<Wallet> {
@@ -300,11 +337,11 @@ export async function continueGrant(w: Wallet, pending: PendingGrant, params: UR
 
 export type ReportSection = string
 
-/** Writes experiments/<fileName> from whitelisted sections only. */
-export async function writeReport(fileName: string, sections: ReportSection[]): Promise<void> {
-  const path = join(dirname(fileURLToPath(import.meta.url)), fileName)
+/** Writes experiments/<fileName> (or <dir>/<fileName>) from whitelisted sections only. */
+export async function writeReport(fileName: string, sections: ReportSection[], dir?: string): Promise<void> {
+  const path = join(dir ?? dirname(fileURLToPath(import.meta.url)), fileName)
   await writeFile(path, sections.join('\n\n') + '\n', 'utf8')
-  console.log(`informe escrito: experiments/${fileName}`)
+  console.log(`informe escrito: ${dir ? path : `experiments/${fileName}`}`)
 }
 
 export const REPORT_HEADER = (title: string, sdkVersion = SDK_VERSION): string =>
