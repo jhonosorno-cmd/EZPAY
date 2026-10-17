@@ -20,6 +20,7 @@ export type EnrollmentAction =
   | { type: "TOGGLE_CONSENT" }
   | { type: "CONTINUE" }
   | { type: "START" }
+  | { type: "MIC_DENIED" } // permiso negado durante "recording": volver a "ready"
   | { type: "RECORDED"; blob: Blob; durationMs: number }
   | { type: "ASK_REPEAT" }
   | { type: "CANCEL_REPEAT" }
@@ -43,6 +44,8 @@ export function enrollmentReducer(s: EnrollmentState, a: EnrollmentAction): Enro
       return s.step === "consent" && s.accepted ? restartSamples(s, null) : s
     case "START":
       return s.step === "sample" && s.phase === "ready" ? { ...s, phase: "recording", tooShort: false, error: null } : s
+    case "MIC_DENIED":
+      return s.phase === "recording" ? { ...s, phase: "ready" } : s
     case "RECORDED":
       if (s.phase !== "recording") return s
       if (a.durationMs < MIN_SAMPLE_MS) return { ...s, phase: "ready", tooShort: true }

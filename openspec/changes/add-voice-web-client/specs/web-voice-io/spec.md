@@ -68,3 +68,33 @@ Si el navegador niega el micrófono, la web app SHALL decirlo en pantalla y deja
 #### Scenario: Micrófono denegado
 - **WHEN** la usuaria rechaza el permiso del micrófono
 - **THEN** la pantalla explica cómo activarlo y ofrece escribir el comando
+
+### Requirement: La grabación empieza cuando el navegador lo confirma
+La web app SHALL mostrar "Habla ahora" solo después del evento `onstart` del `MediaRecorder` y SHALL medir la duración de la grabación (`durationMs`) desde `onstart` hasta `onstop`. Mientras se abre el micrófono SHALL mostrar "Preparando el micrófono…" con el botón deshabilitado. Al llegar `onstart` SHALL emitir una señal corta (vibración si existe; si no, un tono de Web Audio de 60 ms o menos y de volumen bajo). En modo desarrollo SHALL registrar en consola los milisegundos entre el toque y `onstart`, sin ningún dato de audio.
+
+#### Scenario: Micrófono abriéndose
+- **GIVEN** la usuaria tocó "Iniciar grabación"
+- **WHEN** el navegador todavía no emitió `onstart`
+- **THEN** se muestra "Preparando el micrófono…" con el botón deshabilitado
+- **AND** no se muestra "Habla ahora"
+
+#### Scenario: El navegador confirma
+- **GIVEN** el micrófono se está abriendo
+- **WHEN** el `MediaRecorder` emite `onstart`
+- **THEN** se muestra "Habla ahora" y suena (o vibra) una señal corta
+
+#### Scenario: La duración no incluye el retraso
+- **GIVEN** el micrófono tardó 400 ms en abrir
+- **WHEN** la usuaria habla 3 s y detiene la grabación
+- **THEN** `durationMs` es de unos 3 000 ms, no de 3 400 ms
+
+#### Scenario: Soltar antes de que empiece
+- **GIVEN** la usuaria mantiene presionado el botón de hablar y el micrófono se está abriendo
+- **WHEN** suelta antes de `onstart`
+- **THEN** no se envía audio
+- **AND** se detienen todas las pistas del micrófono
+
+#### Scenario: Medición en desarrollo
+- **GIVEN** la web app corre en modo desarrollo
+- **WHEN** llega `onstart`
+- **THEN** la consola muestra el retraso en ms y ningún dato de audio

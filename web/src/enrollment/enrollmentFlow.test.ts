@@ -66,3 +66,11 @@ describe("enrollment-ui: resultado (CONV-2)", () => {
     })
   }
 })
+
+describe("web-voice-io: permiso negado durante la grabación", () => {
+  it("MIC_DENIED vuelve de recording a ready, sin perder lo ya grabado", () => {
+    const s = run({ type: "TOGGLE_CONSENT" }, { type: "CONTINUE" }, { type: "START" })
+    expect(s.phase).toBe("recording")
+    expect(enrollmentReducer(s, { type: "MIC_DENIED" })).toMatchObject({ phase: "ready" })
+  })
+})

@@ -19,7 +19,9 @@ export function MicButton({ disabled, onAudio }: { disabled: boolean; onAudio: (
   if (status === "unsupported") return <p className="mic-note">Este navegador no puede grabar. Escribe tu mensaje.</p>
   if (status === "denied") return <p className="mic-note">No tengo permiso para el micrófono. Puedes escribir tu mensaje.</p>
 
-  const down = () => {
+  // Sin el atributo `disabled`: un botón disabled deja de emitir `pointerup` y la grabación no se detendría.
+  const down = (e: React.PointerEvent<HTMLButtonElement>) => {
+    try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* no hay pointer capture (jsdom) */ }
     unlockAudio()
     if (ttsOn) { stopSpeaking(); return } // primer toque: callar el TTS; el siguiente graba
     void start()
@@ -28,6 +30,7 @@ export function MicButton({ disabled, onAudio }: { disabled: boolean; onAudio: (
     <button
       className={`mic ${status === "recording" ? "recording" : ""}`}
       disabled={disabled}
+      aria-disabled={status === "preparing" || disabled}
       onPointerDown={down}
       onPointerUp={stop}
       onPointerLeave={stop}
@@ -35,7 +38,11 @@ export function MicButton({ disabled, onAudio }: { disabled: boolean; onAudio: (
       aria-label="Mantén presionado para hablar"
     >
       <MicIcon />
-      {status === "recording" ? "Te escucho… suelta para enviar" : ttsOn ? "Toca para callar" : "Mantén presionado y habla"}
+      {status === "preparing"
+        ? "Preparando el micrófono…"
+        : status === "recording"
+          ? "Habla ahora… suelta para enviar"
+          : ttsOn ? "Toca para callar" : "Mantén presionado y habla"}
     </button>
   )
 }
