@@ -226,6 +226,118 @@ SpeakerEnrollment(verifier).enroll(samples, consent=True)  # {"enrolled": True} 
   y el script `python scripts/delete_voiceprint.py` lo hace por CLI (PRIV-3).
   Anti-spoofing fuera de alcance en H2 (riesgo X-4 documentado en el spec).
 
+## Fachada para el orquestador (H3)
+
+`api/integration.py` es la fachada de ML 2 para la unidad 7 de Pagos
+(`add-ml2-integration/voice-turn-integration`): funciones sueltas **sin
+estado de sesión** (todo lo que depende del turno llega como valores y lo que
+produce sale como valores; la sesión completa —frases usadas, frase pedida,
+`challengeAttempts`— vive en el orquestador). El orquestador NO importa
+SpeechBrain ni conoce el umbral, el recorte ni las reglas del desafío; la
+fachada nunca abre HTTP. Lo único de módulo es lo que `init(...)` carga UNA
+vez al arrancar (el `SpeakerVerifier` con `load()` y `HF_HUB_OFFLINE=1`, el
+`SpeakerEnrollment`, el `AvDecoder` de Voz y el banco con `load_bank`); todo
+se puede inyectar para pruebas con dobles. Si algo falla al cargar, la
+fachada queda en modo degradado: `voice_of` da `NOT_AVAILABLE` y el
+enrolamiento responde `500 INTERNAL_ERROR` (el que el Contrato B ya define
+para `/api/enrollment`), igual que ante un fallo inesperado del modelo o del disco.
+
+- `init(verifier=None, enrollment=None, decoder=None, bank=None, timeout_s=2.0)` —
+  carga una vez; si algo falla NO lanza (modo degradado).
+- `voice_of(audio: bytes, user="usuario") -> {"status", "score"}` — decodifica
+  con `AvDecoder` y llama `SpeakerVerifier.verify`. Fallo cerrado (P2):
+  excepción, audio ilegible, modelo caído o sin huella ⇒ `NOT_AVAILABLE`.
+  Timeout de 2 s en un executor de 1 hilo; la verificación vencida NO se
+  cancela y, mientras siga corriendo, toda llamada nueva responde
+  `NOT_AVAILABLE` de inmediato, sin encolar.
+- `verify_and_transcribe(audio, transcribe_fn) -> (voice, transcript)` — corre
+  en paralelo la voz y la transcripción del orquestador (latencia ≈ la más
+  lenta, no la suma). `voice_of` nunca lanza; la excepción de la transcripción
+  se propaga (es del contrato de Voz y Pagos).
+- `choose_confirmation_mode(challenge_enabled, decision_phase, decision,
+  command_voice_status) -> "CHALLENGE"|"REPLY"` — `CHALLENGE` solo con la
+  bandera activa, `ASK_CONFIRM` directo de la fase `COMMAND` y comando
+  verificado por voz; si el pago pasó por PIN (o la confirmación viene de la
+  fase PIN), `REPLY` (el PIN ya es el segundo factor). Helper puro (P5): la
+  decisión final es del orquestador.
+- `next_challenge_phrase(used, last=None, rng=None) -> (phrase, used)` —
+  `pick_phrase` de Voz (al azar, nunca el LLM, sin repetir); no muta la lista
+  recibida; el orquestador guarda ambas en su sesión.
+- `build_confirmation(mode, *, transcript, expected_phrase, voice,
+  challenge_attempts) -> dict` — el dict camelCase del B11:
+  `{"mode", "phraseScore", "voice", "challengeAttempts"}`. `phraseScore` es
+  `phrase_match` redondeado a 4 decimales (`None` sin respuesta por voz); con
+  `REPLY` no verifica nada. La fachada solo mide: el corte de frase lo aplica
+  el motor (P8, sin `CHALLENGE_MIN_MATCH` ni `challenge_matches`).
+- `command_say_context(context, mode) -> dict` — copia del `context` con
+  `confirmation = {mode: "CHALLENGE", phraseScore: null, voice: null,
+  challengeAttempts: 0}` cuando el modo es CHALLENGE, para que
+  `say_situation` elija `CONFIRM_CHALLENGE`/`CONFIRM_CHALLENGE_OVERRUN`; con
+  REPLY sale `CONFIRM`/`AUTH_OVERRUN` ("sí" como hoy).
+- `enroll_from_uploads(audios, consent) -> (201, {"enrolled": True}) |
+  (400, {"error": {"code", "message"}})` — Contrato B-5: `CONSENT_REQUIRED` y
+  `SAMPLES_REQUIRED` se revisan ANTES de decodificar (B-5, en orden), el
+  decoder de Voz decodifica las 3 partes y `EnrollmentError` se mapea 1 a 1
+  (mensaje = código).
+- `consent_external() -> bool` — el `consentExterno` que Voz necesita para
+  transcribir con Groq (el consentimiento único del enrolamiento lo cubre). Sin
+  fachada o con error da `False`: ante la duda la voz no sale del equipo y se
+  usa el modelo local.
+- `enrollment_status() -> (200, {"enrolled": bool})` para la ruta (500
+  `INTERNAL_ERROR` sin fachada) e `is_enrolled() -> bool` para el `enrolled` del
+  `context` (sin fachada o con error da `False`: el motor pide PIN, D3). El borrado sigue siendo `scripts/delete_voiceprint.py` (PRIV-3).
+
+Ejemplo de un turno de comando (fase COMMAND, todo por voz):
+
+```python
+import integration as ml2
+
+ml2.init()  # al arrancar el backend, una sola vez
+
+# turno: audio del comando -> voz y transcripción en paralelo
+# consent_external: con True Voz transcribe con Groq (cae al local solo si Groq falla);
+# con False transcribe SIEMPRE con el modelo local, que entiende mucho peor
+voz, transcript = ml2.verify_and_transcribe(
+    audio, lambda: transcribe(audio, request_id, ml2.consent_external(), engines))
+contexto = {"phase": "COMMAND", "voice": voz, "intent": intent, "resolution": resolucion,
+            "enrolled": ml2.is_enrolled(), ...}
+decision = decide(parse_context(contexto))
+if decision.decision == "ASK_CONFIRM":
+    modo = ml2.choose_confirmation_mode(config.confirmationChallenge, "COMMAND",
+                                        decision.decision, voz["status"])
+    if modo == "CHALLENGE":
+        frase, usadas = ml2.next_challenge_phrase(sesion["frasesUsadas"],
+                                                  last=sesion.get("frasePedida"))
+        sesion["frasesUsadas"], sesion["frasePedida"] = usadas, frase
+        situacion = say_situation(decision, parse_context(
+            ml2.command_say_context(contexto, modo)))  # CONFIRM_CHALLENGE con {frase}
+```
+
+Ejemplo de un turno de confirmación con desafío (fase CONFIRMATION):
+
+```python
+# la respuesta por voz al desafío -> confirmation del B11 y decisión del motor
+voz_respuesta, transcript = ml2.verify_and_transcribe(
+    audio_respuesta, lambda: transcribe(audio_respuesta, request_id, ml2.consent_external(), engines))
+# transcript es el Transcript de Voz: a la fachada va su .text
+confirmation = ml2.build_confirmation("CHALLENGE", transcript=transcript.text,
+                                      expected_phrase=sesion["frasePedida"],
+                                      voice=voz_respuesta,
+                                      challenge_attempts=sesion["challengeAttempts"])
+resultado = decide(parse_context({**contexto, "phase": "CONFIRMATION",
+                                  "reply": classify_reply(transcript.text).value,  # "no" gana
+                                  "confirmation": confirmation}))
+# PAY/CONFIRMED, ASK_PIN/CHALLENGE_VOICE_NOT_VERIFIED, ASK_CONFIRM/CHALLENGE_RETRY
+# o REJECT/CHALLENGE_FAILED: el corte de frase (0.80) lo aplicó el motor
+```
+
+- **Privacidad en la integración (PRIV)**: la fachada y sus pruebas no
+  escriben audio, embeddings, transcripciones, puntajes ni frases en logs,
+  `error.message` ni disco; los mensajes de log son fijos ("Speaker
+  verification timed out", "Facade not loaded", ...). En disco solo
+  `huella.npy` y `consent.json` bajo `EZPAY_SPEAKER_DATA_DIR` (PRIV-1). Las
+  pruebas usan audio sintético y dobles, nunca voces reales.
+
 ## Formas de Voz que consume el motor
 
 Voz (ML 1) entrega `intent` y `resolution` en camelCase, exactamente las

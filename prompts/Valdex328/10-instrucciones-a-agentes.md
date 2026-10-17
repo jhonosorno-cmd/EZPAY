@@ -687,6 +687,96 @@ Repórtame en un mensaje:
 Pausa ahí.
 ````
 
+### B13 — Fachada de ML 2 para el orquestador (H3, 17 oct)
+
+````text
+Instrucción de Daniel (ML 2), B13: implementa la **fachada de ML 2 para el orquestador** (H3).
+
+**Dónde.** Repo `C:\Users\danie\Desktop\Hackatons\Interledger\EZPAY`, rama **`H3`** (ya está creada y con push; NO cambies de rama, no hagas pull, merge ni commits). Toca SOLO:
+- `api/integration.py` (nuevo);
+- `api/tests/integration/` (nuevo, sin `__init__.py`, igual que las otras carpetas de pruebas);
+- `api/README-ml2.md`.
+
+NO toques `api/decision/`, `api/speaker/`, `api/pin/` ni `api/voice/`: si algo de ahí te falta, para y pregúntame. Primero escribe las pruebas y después el código.
+
+## Fuente de verdad
+- `openspec/changes/add-ml2-integration/specs/voice-turn-integration/spec.md`: sus 9 requisitos y escenarios.
+- `design.md` del mismo cambio.
+- La sección "Confirmación con desafío de voz" de `api/README-ml2.md`.
+
+Si el spec y esta instrucción no coinciden, para y pregúntame.
+
+## Forma de la fachada (P1: funciones sueltas, SIN estado de sesión)
+El orquestador (la unidad 7 de Pagos, que aún no existe) guarda todo en su sesión. La fachada recibe valores y devuelve valores. Lo único de módulo que se permite es lo que se carga una vez al arrancar: el verificador y el banco de frases. Nombres sugeridos (ajústalos si el spec dice otra cosa):
+
+1. **`init(verifier=None, enrollment=None, decoder=None, bank=None, timeout_s=2.0)`**
+   - Carga una vez el `SpeakerVerifier`, con `load()` y `HF_HUB_OFFLINE=1` como hoy; el `SpeakerEnrollment`; el `AvDecoder` de `voice.engines`; y el banco con `voice.challenge.load_bank`.
+   - Todo debe poder inyectarse, para que las pruebas usen dobles sin modelo.
+   - Si algo falla al cargar, NO lanza: deja la fachada en modo degradado, y entonces `verify` da `NOT_AVAILABLE` y el enrolamiento falla con un error controlado.
+2. **`voice_of(audio: bytes, user=...) -> {"status", "score"}`**
+   - Decodifica con `AvDecoder().decode(bytes)` y llama `verifier.verify(pcm, user)`. Sirve para el comando y para la respuesta al desafío.
+   - **Fallos cerrados (P2):** cualquier excepción, audio ilegible, modelo caído o falta de huella da `{"status": "NOT_AVAILABLE", "score": None}`.
+   - **Timeout de 2 s:** corre la verificación en un executor de 1 hilo. Si vence, devuelve `NOT_AVAILABLE`. La verificación vencida NO se cancela; mientras siga corriendo, cualquier llamada nueva devuelve `NOT_AVAILABLE` de inmediato (flag "ocupado"), sin encolar.
+3. **`verify_and_transcribe(audio, transcribe_fn) -> (voice, transcript_result)`**
+   - Helper para que el orquestador corra en paralelo `voice_of(audio)` y su función de transcripción. Usa un `ThreadPoolExecutor` y espera las dos.
+   - Si la transcripción lanza, la excepción se propaga al orquestador: la transcripción es de Voz y Pagos, y sus errores son del contrato. La voz nunca lanza.
+4. **`choose_confirmation_mode(challenge_enabled: bool, decision_phase: str, decision: str, command_voice_status: str|None) -> "CHALLENGE"|"REPLY"`**
+   - Devuelve `CHALLENGE` solo si `challenge_enabled`, `decision == "ASK_CONFIRM"`, `decision_phase == "COMMAND"` y `command_voice_status == "VERIFIED"`. En cualquier otro caso, `REPLY`.
+5. **`next_challenge_phrase(used: list[str], last: str|None, rng=None) -> (phrase, used_actualizada)`**
+   - Usa `pick_phrase` de `voice.challenge` y nunca modifica la lista que recibe.
+   - `rng` se puede inyectar para pruebas deterministas; si no viene, usa `random.SystemRandom()`.
+6. **`build_confirmation(mode, *, transcript: str|None, expected_phrase: str|None, voice: dict|None, challenge_attempts: int) -> dict`**
+   - Devuelve el dict camelCase que espera el motor: `{"mode", "phraseScore", "voice", "challengeAttempts"}`.
+   - `phraseScore`: `voice.challenge.phrase_match(transcript, expected_phrase)` como número redondeado a 4 decimales, o `None` si `transcript` es None (no hubo respuesta por voz).
+   - Con `mode == "REPLY"`: `phraseScore=None`, `voice=None`, y no se verifica nada.
+   - **P8:** la fachada NO aplica ningún corte, ni usa `CHALLENGE_MIN_MATCH` ni `challenge_matches`; el corte lo aplica el motor.
+   - Valida las entradas: si son inválidas, lanza `ValueError` con un mensaje fijo, sin el valor recibido.
+7. **`command_say_context(context: dict, mode: str) -> dict`**
+   - Devuelve una COPIA del context. Con `CHALLENGE` le agrega `confirmation = {"mode": "CHALLENGE", "phraseScore": None, "voice": None, "challengeAttempts": 0}`, para que `say_situation` elija `CONFIRM_CHALLENGE`/`CONFIRM_CHALLENGE_OVERRUN`. Con `REPLY` lo devuelve sin `confirmation`.
+   - Prueba de integración con `decision.decide_dict` y `say_situation` reales: un context de COMMAND que da `ALL_CHECKS_PASSED` debe salir `CONFIRM_CHALLENGE` con CHALLENGE y `CONFIRM` con REPLY; y con exceso, `CONFIRM_CHALLENGE_OVERRUN` y `AUTH_OVERRUN`. Reusa los fixtures de `tests/decision/decision_fixtures.py`.
+8. **Enrolamiento web (Contrato B, B-5):**
+   - `enroll_from_uploads(audios: list[bytes], consent) -> (201, {"enrolled": True})` o `(400, {"error": {"code": C, "message": C}})`.
+   - Decodifica cada parte con `AvDecoder`. Si una no se puede decodificar, da `INVALID_AUDIO`, respetando el orden de B-5: `CONSENT_REQUIRED` y `SAMPLES_REQUIRED` se revisan ANTES de decodificar.
+   - Mapea `EnrollmentError.code` 1 a 1.
+   - `enrollment_status() -> {"enrolled": bool}`.
+   - Si la fachada no cargó, devuelve un error controlado: propón el código y el estado HTTP y dímelo, pero sin inventar un código nuevo del contrato. Si no hay uno adecuado, usa 503 con el código `SERVICE_UNAVAILABLE` solo si ya existe en `openapi/components.yaml`; búscalo.
+
+## Privacidad (PRIV)
+- Ni la fachada ni las pruebas escriben audio, embeddings, transcripciones, puntajes ni frases en logs o `error.message`.
+- Los logs son fijos, como "Speaker verification timed out" o "Facade not loaded".
+- Las pruebas usan audio sintético y dobles. Nunca voces reales ni archivos de `recordings/` o `test_data/`.
+
+## Pruebas mínimas (`api/tests/integration/test_integration.py`)
+- Uno o más escenarios por cada requisito del spec.
+- **Verificación:**
+  - VERIFIED, BELOW_THRESHOLD y NOT_AVAILABLE con un verificador doble;
+  - excepción del doble, decoder que falla y fachada sin cargar dan NOT_AVAILABLE;
+  - timeout: un doble que tarda 3 s da NOT_AVAILABLE en ~2 s, y una llamada inmediata mientras sigue ocupado también da NOT_AVAILABLE sin esperar. Usa un timeout corto inyectado, por ejemplo 0.2 s y un doble de 0.6 s, para que la prueba sea rápida.
+  - paralelo: la latencia total ≈ la más lenta, no la suma.
+- **`choose_confirmation_mode`:** la tabla completa.
+- **`next_challenge_phrase`:** sin repetir, la entrada no se muta y es determinista con semilla.
+- **`build_confirmation`:** camelCase; `phraseScore` de 1.0, 0.875 y 0 (vacío); None sin transcript; REPLY; entradas inválidas.
+- **Ida y vuelta con el motor:** `build_confirmation(...)` dentro de un context que pasa por `decision.context_io.parse_context` y `decide` da PAY, ASK_PIN, CHALLENGE_RETRY y CHALLENGE_FAILED según el caso.
+- **`command_say_context`:** con say real.
+- **Enrolamiento:** 201; los 4 errores en el orden de B-5; INVALID_AUDIO por fallo del decoder; status.
+- **Privacidad:** captura los logs y comprueba que no aparecen el transcript, la frase ni el score.
+
+## Al terminar
+Corre desde `api/`, con el `.venv` de Pruebas ML2:
+- `PYTHONPATH=. python -m unittest discover -s tests/integration`
+- la suite completa: `PYTHONPATH=. python -m pytest tests -q`
+
+Agrega al `README-ml2.md` la sección "Fachada para el orquestador (H3)": cómo la usa la unidad 7, con un ejemplo de un turno de comando y de un turno de confirmación con desafío.
+
+Repórtame:
+- los archivos tocados;
+- los resultados de las pruebas;
+- los comandos exactos para que Daniel los corra;
+- desviaciones o dudas.
+
+Pausa ahí.
+````
+
 ---
 
 Registro: 2026-10-16 · textos tomados de los mensajes enviados desde la sesión "Hachathon Interledger EZPAY" a los agentes `a0e9fa5f` (Constructor de Specs) y `c23437fd` (Builder). Los mensajes de estado sin instrucciones nuevas no se incluyen.

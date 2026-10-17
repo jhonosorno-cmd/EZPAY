@@ -47,3 +47,28 @@ def test_respuesta_poco_clara_no_paga_y_vuelve_a_preguntar():
     comando = salidas_del_comando(" Envíale 20.000 a Laura hija", True, "groq")
     r = salidas_de_la_respuesta(comando["context"], " Mmm, no sé.")
     assert r["reply"] == "UNCLEAR" and r["decision"]["decision"] != "PAY"
+
+
+# --- Frases sugeridas del modo libre: lo esperado debe coincidir con lo que el sistema entiende del texto exacto
+from scripts.salidas import FRASES_LIBRES  # noqa: E402
+
+
+def test_hay_frases_sugeridas_distintas():
+    assert len(FRASES_LIBRES) >= 15
+    assert len({f.decir for f in FRASES_LIBRES}) == len(FRASES_LIBRES)
+
+
+def test_lo_esperado_de_cada_frase_coincide_con_lo_que_entiende_el_sistema():
+    for f in FRASES_LIBRES:
+        s = salidas_del_comando(f.decir, True, "groq")
+        monto = s["intent"]["amount"]
+        pesos = int(monto["value"]) // 10 ** monto["assetScale"] if monto else None
+        assert pesos == f.pesos, (f.decir, pesos)
+        assert s["resolution"]["kind"] == f.resolucion, (f.decir, s["resolution"]["kind"])
+        assert s["decision"]["decision"] != "PAY"  # un comando por voz nunca paga sin PIN ni confirmación
+
+
+def test_las_sugeridas_cubren_nombres_fuera_de_la_agenda_y_casos_sin_monto_o_sin_nombre():
+    resoluciones = {f.resolucion for f in FRASES_LIBRES}
+    assert {"RESOLVED", "NOT_FOUND", "CHOICE"} <= resoluciones
+    assert any(f.pesos is None for f in FRASES_LIBRES)

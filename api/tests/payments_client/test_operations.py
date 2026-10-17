@@ -246,6 +246,24 @@ class OperationsTest(unittest.TestCase):
         self.assertFalse(issubclass(UpstreamUnavailable, PaymentsError))
         self.assertFalse(issubclass(PaymentsError, UpstreamUnavailable))
 
+    def test_invalid_request_from_node_raises_without_retry(self):
+        """AB-1: un 400 INVALID_REQUEST de Node es error de negocio, sin reintento."""
+        recorder = doubles.Recorder()
+        client = doubles.make_client(
+            recorder,
+            lambda r: recorder.respond_contract(
+                "/v1/quotes", "post", 400,
+                {"error": {"code": "INVALID_REQUEST", "message": "La petición no es válida"}},
+            ),
+            **ASSETS,
+        )
+        with self.assertRaises(PaymentsError) as ctx:
+            client.create_quote("g_abc", "https://wallet.test/laura", "2000000")
+        self.assertEqual(ctx.exception.code, "INVALID_REQUEST")
+        self.assertEqual(ctx.exception.status, 400)
+        self.assertEqual(recorder.count, 1)
+        self.assertNotIsInstance(ctx.exception, UpstreamUnavailable)
+
 
 if __name__ == "__main__":
     unittest.main()
