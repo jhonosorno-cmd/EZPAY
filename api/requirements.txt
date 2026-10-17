@@ -1,3 +1,12 @@
+# Dependencias del esqueleto FastAPI (Pagos). Versiones exactas, instaladas en api/.venv.
+# Otros roles agregan sus líneas acá: solo AGREGAR, no reescribir.
+fastapi==0.143.3
+uvicorn==0.54.0
+python-multipart==0.0.32
+httpx==0.28.1
+PyYAML==6.0.3
+jsonschema==4.26.0
+
 # Dependencias aprobadas por Sebastián (2026-10-17) para la Fase 2 de speech-transcription.
 # Solo esto: faster-whisper y sus transitivas directas. Groq va con urllib (librería estándar).
 faster-whisper==1.2.1
@@ -13,14 +22,6 @@ torch==2.14.1+cpu
 torchaudio==2.11.0+cpu
 speechbrain==1.1.2
 
-# Backend FastAPI (api/app/, rutas del Contrato B y orquestador), 2026-10-17. httpx lo usa además
-# payments_client/. pyyaml, jsonschema y pytest solo para las pruebas (tests/app valida contra
-# openapi/contract-b.yaml; tests/voice usa pytest). En macOS torch no tiene la variante +cpu:
-# instalar torch==2.14.1 y torchaudio sin el sufijo.
-fastapi==0.118.0
-uvicorn==0.37.0
-python-multipart==0.0.20
-httpx==0.28.1
-pyyaml==6.0.2
-jsonschema==4.25.1
+# Pruebas de api/ (tests/voice usa pytest). En macOS torch no tiene la variante +cpu: instalar
+# torch==2.14.1 y torchaudio sin el sufijo.
 pytest==8.4.2

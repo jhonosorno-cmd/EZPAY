@@ -89,7 +89,10 @@ class TestInputErrors(AppCase):
 
 class TestBudget(AppCase):
     def test_no_budget_yet(self):
-        self.assertEqual(self.client.get("/api/budget").status_code, 404)
+        res = self.client.get("/api/budget")
+        self.assertEqual(res.status_code, 200)
+        jsonschema.validate(res.json(), BUDGET)
+        self.assertEqual(res.json()["status"], "PENDING")
 
     def test_create_and_read_budget(self):
         self.with_budget()

@@ -125,18 +125,24 @@ class Orchestrator:
             if grant_id is None and self.wallet.pending_auth and self.wallet.pending_auth.kind == "budget":
                 grant_id = self.wallet.pending_auth.grant_id
             if grant_id is None:
-                raise ApiFailure(404, "BUDGET_NOT_FOUND", "No hay presupuesto autorizado")
+                return self._no_budget()
             try:
                 grant = self.payments.get_grant(grant_id, request_id=request_id)
             except PaymentsError as err:
                 if err.code == "GRANT_NOT_FOUND":
                     self._forget_budget(grant_id)
-                    raise ApiFailure(404, "BUDGET_NOT_FOUND", "No hay presupuesto autorizado") from None
+                    return self._no_budget()
                 raise ApiFailure(502, "UPSTREAM_ERROR", "No se pudo contactar al servicio de pagos") from None
             except UpstreamUnavailable:
                 raise ApiFailure(502, "UPSTREAM_ERROR", "No se pudo contactar al servicio de pagos") from None
             return {"status": grant["status"], "limit": grant["limit"], "spent": grant["spent"],
                     "remaining": grant["remaining"]}
+
+    def _no_budget(self) -> dict:
+        """Sin grant: 200 válido contra el contrato (como el esqueleto de Pagos); el frontend trata
+        todo estado distinto de ACTIVE como "sin presupuesto"."""
+        zero = {"value": "0", "assetCode": self.settings.asset_code, "assetScale": self.settings.asset_scale}
+        return {"status": "PENDING", "limit": {"debitAmount": zero}, "spent": zero, "remaining": zero}
 
     # ================================================================ turno
     def _turn(self, session_id, text, audio, kind, rid) -> TurnResult:
@@ -518,9 +524,11 @@ class Orchestrator:
 
     def _verify_pending(self, session, rid) -> TurnResult:
         pp = self.wallet.pending_payment
-        if pp is None:  # ya se resolvió en otro turno
+        if pp is None:  # ya se resolvió en otro turno (o nunca hubo pago pendiente)
+            was_pending = session.state is TurnState.PAYMENT_PENDING
             session.state = TurnState.AWAITING_COMMAND
-            return TurnResult(session, FALLBACK_SAY["PENDING_COMPLETED"])
+            return TurnResult(session, FALLBACK_SAY["PENDING_COMPLETED"] if was_pending
+                              else phrases.say(phrases.Situation.NOT_UNDERSTOOD))
         try:
             payment = self._resolve_pending(rid)
         except PaymentsError as err:
@@ -613,12 +621,11 @@ class Orchestrator:
         session = self.sessions.get(auth.session_id) if auth and auth.session_id else None
         session = session or self.sessions.create()
         interact_ref, hash_value = body.get("interactRef"), body.get("hash")
-        if auth is None:
-            raise ApiFailure(404, "SESSION_NOT_FOUND", "No hay ninguna autorización en curso")
-        if not interact_ref or not hash_value:
-            # Rechazo en la wallet (B-1): no se llama a /continue y la intención se descarta.
+        if auth is None or not interact_ref or not hash_value:
+            # Rechazo en la wallet (B-1) o callback sin autorización en curso (D-2 de Pagos):
+            # no se llama a /continue y la intención se descarta.
             self.wallet.pending_auth = None
-            if auth.kind == "excess":
+            if auth is not None and auth.kind == "excess":
                 self._cancel_grant(auth.grant_id, rid)
             session.state = TurnState.REJECTED
             session.reset_command()

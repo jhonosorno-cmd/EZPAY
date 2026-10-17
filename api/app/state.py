@@ -11,24 +11,14 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
+
+from .states import TurnState  # enum del esqueleto de Pagos (PR #21)
 
 logger = logging.getLogger("ezpay.state")
 
-SESSION_TTL_SECONDS = 2 * 60 * 60
+SESSION_TTL_SECONDS = 15 * 60  # desde la última actividad
 MAX_SESSIONS = 500
-
-
-class TurnState(str, Enum):
-    AWAITING_COMMAND = "AWAITING_COMMAND"
-    AWAITING_CONFIRMATION = "AWAITING_CONFIRMATION"
-    AWAITING_PIN = "AWAITING_PIN"
-    AWAITING_RECIPIENT_CHOICE = "AWAITING_RECIPIENT_CHOICE"
-    AWAITING_AUTHORIZATION = "AWAITING_AUTHORIZATION"
-    PAYMENT_PENDING = "PAYMENT_PENDING"
-    COMPLETED = "COMPLETED"
-    REJECTED = "REJECTED"
 
 
 @dataclass
@@ -51,7 +41,7 @@ class Session:
     state: TurnState = TurnState.AWAITING_COMMAND
     command: Command | None = None
     options: tuple = ()               # voice.contacts.Option ofrecidas en AWAITING_RECIPIENT_CHOICE
-    touched: float = field(default_factory=time.monotonic)
+    created_at: float = field(default_factory=time.monotonic)  # última actividad
 
     def reset_command(self) -> None:
         self.command = None
@@ -75,15 +65,15 @@ class SessionStore:
             self._expire()
             session = self._sessions.get(session_id)
             if session is not None:
-                session.touched = time.monotonic()
+                session.created_at = time.monotonic()
             return session
 
     def _expire(self) -> None:
         now = time.monotonic()
-        for sid in [s for s, v in self._sessions.items() if now - v.touched > SESSION_TTL_SECONDS]:
+        for sid in [s for s, v in self._sessions.items() if now - v.created_at > SESSION_TTL_SECONDS]:
             del self._sessions[sid]
         while len(self._sessions) > MAX_SESSIONS:
-            oldest = min(self._sessions.values(), key=lambda s: s.touched)
+            oldest = min(self._sessions.values(), key=lambda s: s.created_at)
             del self._sessions[oldest.id]
 
 

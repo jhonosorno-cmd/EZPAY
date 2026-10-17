@@ -31,3 +31,5 @@ PYTHONPATH=.:tests/app .venv/bin/python -m pytest tests -q
 | `app/orchestrator.py` | Turno: intención → agenda → voz → quote → motor → `TurnState` y llamadas a Node |
 | `app/state.py` | Sesiones en memoria; grant de presupuesto e historial en `api/.data/app/` (fuera de git) |
 | `app/voice_io.py` | Transcripción y verificación sobre el mismo PCM; enrolamiento |
+
+En Windows el venv queda en `.venv\Scripts\python`.

@@ -98,11 +98,16 @@ class FakePayments:
         return [c[0] for c in self.calls]
 
 
+class FakeEnrollment:
+    def enroll(self, samples, consent):
+        return {"enrolled": True}
+
+
 class FakeVoice(VoiceIO):
     """Voz falsa: el "audio" es el texto dicho en UTF-8; la verificación es configurable."""
 
     def __init__(self):
-        super().__init__()
+        super().__init__(enrollment=FakeEnrollment())
         self.voice_status = "VERIFIED"
         self.is_enrolled = True
         self.transcribed = 0
@@ -112,6 +117,13 @@ class FakeVoice(VoiceIO):
 
     def enrolled(self):
         return self.is_enrolled
+
+    @property
+    def speaker_ready(self):
+        return True
+
+    def decode(self, audio):
+        return audio
 
     def transcribe_command(self, audio, request_id, verify):
         self.transcribed += 1
@@ -177,3 +189,25 @@ def contract_schema(name: str) -> dict:
 
 def temp_dir():
     return tempfile.TemporaryDirectory()
+
+
+class DoubleAppMixin:
+    """setUp común: la app real (orquestador) con Node, voz y PIN falsos."""
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        from app.main import create_app
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.orch, self.node, self.voice, self.pin = build(Path(self._tmp.name))
+        self.app = create_app(orchestrator=self.orch, voice_io=self.voice)
+        self.client = TestClient(self.app)
+
+    def reach_pin(self):
+        """Lleva una sesión a AWAITING_PIN por el camino real: presupuesto aprobado y comando por texto."""
+        self.client.post("/api/budget", json={"debitAmount": amt("20000000")})
+        self.client.post("/api/grant-callback", json={"interactRef": "ref-inventada", "hash": "hash-inventado"})
+        first = self.client.post("/api/turns", data={"text": "envíale veinte mil a mi hija"}).json()
+        assert first["state"] == "AWAITING_PIN", first
+        return first

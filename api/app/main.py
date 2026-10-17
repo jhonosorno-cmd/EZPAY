@@ -4,16 +4,19 @@ Arranque, desde `api/`: `uvicorn app.main:app --port 8000`. Logs de cada request
 requestId, ruta, estado HTTP, `state` del turno y duración; nunca el cuerpo (ni audio, ni texto,
 ni el PIN).
 """
+import json
 import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from payments_client import PaymentsClient
 
@@ -23,6 +26,8 @@ from .voice_io import TranscriptionUnavailable, VoiceIO
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("ezpay.api")
+access_log = logging.getLogger("api.app")  # mismo logger y formato JSON que el esqueleto de Pagos
+access_log.setLevel(logging.INFO)
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
@@ -44,34 +49,49 @@ def create_app(orchestrator: Orchestrator | None = None, voice_io: VoiceIO | Non
             payments = PaymentsClient(node_base_url=settings.node_base_url, asset_code=settings.asset_code,
                                       asset_scale=settings.asset_scale)
             state["orchestrator"] = Orchestrator(settings, payments, state["voice"])
+            _app.state.session_store = state["orchestrator"].sessions
         logger.info("EZPAY api ready (node=%s, speaker=%s, wallet=%s)", settings.node_base_url,
                     "ready" if state["voice"].speaker_ready else "unavailable",
                     "configured" if settings.wallet_address else "MISSING")
         yield
 
-    app = FastAPI(title="EZPAY Contract B", version="1.1.0", lifespan=lifespan)
+    app = FastAPI(title="EZPAY Contract B", version="1.1.0", lifespan=lifespan, docs_url=None, redoc_url=None)
+    if orchestrator is not None:
+        app.state.session_store = orchestrator.sessions
     app.add_middleware(CORSMiddleware, allow_origins=list(settings.cors_origins), allow_methods=["GET", "POST"],
                        allow_headers=["Content-Type", "X-Request-Id"], expose_headers=["X-Request-Id"])
 
     @app.middleware("http")
     async def request_log(request: Request, call_next):
-        rid = request.headers.get("x-request-id") or str(uuid.uuid4())
+        # Lista blanca del esqueleto (PR #21): requestId, método, ruta, status, duración y state.
+        rid = request.headers.get("x-request-id") or uuid.uuid4().hex
         request.state.rid = rid
         request.state.turn_state = None
-        started = time.monotonic()
+        started = time.perf_counter()
         try:
             response = await call_next(request)
-        except Exception:
-            logger.exception("Unhandled error requestId=%s path=%s", rid, request.url.path)
+        except Exception as exc:
+            logger.error(json.dumps({"requestId": rid, "path": request.url.path, "error": type(exc).__name__}))
             response = _error(500, "INTERNAL_ERROR", "Error interno")
+        entry = {"requestId": rid, "method": request.method, "path": request.url.path,
+                 "status": response.status_code, "durationMs": round((time.perf_counter() - started) * 1000)}
+        if request.state.turn_state:
+            entry["state"] = request.state.turn_state
+        access_log.info(json.dumps(entry, ensure_ascii=False))
         response.headers["X-Request-Id"] = rid
-        logger.info("requestId=%s %s %s status=%s state=%s ms=%d", rid, request.method, request.url.path,
-                    response.status_code, request.state.turn_state or "-", (time.monotonic() - started) * 1000)
         return response
 
     @app.exception_handler(ApiFailure)
     async def api_failure(_request: Request, exc: ApiFailure):
         return _error(exc.status, exc.code, exc.message)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception(_request: Request, exc: StarletteHTTPException):
+        return _error(exc.status_code, "INVALID_REQUEST", "La petición no es válida")
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(_request: Request, _exc: RequestValidationError):
+        return _error(400, "INVALID_REQUEST", "La petición no es válida")
 
     def orch() -> Orchestrator:
         return state["orchestrator"]
@@ -123,9 +143,9 @@ def create_app(orchestrator: Orchestrator | None = None, voice_io: VoiceIO | Non
         try:
             body = await request.json()
         except Exception:
-            raise ApiFailure(400, "INVALID_AMOUNT", "El monto no es válido") from None
+            raise ApiFailure(400, "INVALID_REQUEST", "La petición no es válida") from None
         if not isinstance(body, dict):
-            raise ApiFailure(400, "INVALID_AMOUNT", "El monto no es válido")
+            raise ApiFailure(400, "INVALID_REQUEST", "La petición no es válida")
         interval = body.get("interval") if isinstance(body.get("interval"), str) else None
         url = await run_in_threadpool(orch().create_budget, body.get("debitAmount"), interval, request.state.rid)
         return {"interactUrl": url}
