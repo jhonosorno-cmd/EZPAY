@@ -32,6 +32,21 @@ class Situation(str, Enum):
     AUTH_APPROVED = "AUTH_APPROVED"
     AUTH_REJECTED = "AUTH_REJECTED"
     PAYMENT_PENDING = "PAYMENT_PENDING"
+    # Catálogo único (decisión de ML 2, 2026-10-16): una situación por `reason` del motor que no tenía texto.
+    # Mismo nombre que el `reason`; los textos están en openspec/changes/add-decision-engine/design.md.
+    INTENT_AMBIGUOUS = "INTENT_AMBIGUOUS"
+    INTENT_LOW_CONFIDENCE = "INTENT_LOW_CONFIDENCE"
+    TRANSCRIPT_LOW_CONFIDENCE = "TRANSCRIPT_LOW_CONFIDENCE"
+    PENDING_PAYMENT_SAME_RECIPIENT = "PENDING_PAYMENT_SAME_RECIPIENT"
+    PENDING_PAYMENT_UNCONFIRMED = "PENDING_PAYMENT_UNCONFIRMED"
+    PENDING_PAYMENT_UNCONFIRMED_OVERRUN = "PENDING_PAYMENT_UNCONFIRMED_OVERRUN"
+    NEW_RECIPIENT = "NEW_RECIPIENT"
+    HIGH_AMOUNT = "HIGH_AMOUNT"
+    PIN_WRONG = "PIN_WRONG"
+    PIN_ATTEMPTS_EXHAUSTED = "PIN_ATTEMPTS_EXHAUSTED"
+    PIN_LOCKED = "PIN_LOCKED"
+    PIN_INVALID_FORMAT = "PIN_INVALID_FORMAT"
+    REPLY_UNCLEAR_REJECTED = "REPLY_UNCLEAR_REJECTED"
 
 
 S = Situation
@@ -50,18 +65,40 @@ TEMPLATES = {
     S.CONFIRM_UNCLEAR: "No te entendí. ¿Le envío {recibe} {moneda} a {nombre}? Di sí o no.",
     S.CANCELLED: "Listo, cancelé el envío.",
     S.COMPLETED: "Listo, le envié {recibe} {moneda} a {nombre}.",
-    S.PIN_KEYBOARD: "Escribe tu PIN en el teclado.",
+    S.PIN_KEYBOARD: "Por seguridad, escribe tu PIN en el teclado.",
     S.AUTH_BUDGET: "Para empezar, autoriza tu presupuesto en tu billetera. Toca el botón que dice Aprobar.",
     S.AUTH_OVERRUN: "Supera tu presupuesto. ¿Lo autorizas en tu billetera?",
     S.AUTH_REDIRECT: "Te voy a llevar a tu billetera. Toca el botón que dice Aprobar.",
     S.AUTH_APPROVED: "Listo, autorizaste el pago.",
     S.AUTH_REJECTED: "No autorizaste el pago. No envié nada.",
     S.PAYMENT_PENDING: "Tu envío está en camino. No hace falta repetirlo.",
+    S.INTENT_AMBIGUOUS: "No me quedó claro. Dime un solo monto y un solo destinatario.",
+    S.INTENT_LOW_CONFIDENCE: "No te entendí bien. ¿Me lo repites?",
+    S.TRANSCRIPT_LOW_CONFIDENCE: "No te escuché bien. ¿Me lo repites?",
+    S.PENDING_PAYMENT_SAME_RECIPIENT: "Tu envío anterior a {nombre} aún no termina. Espera un momento.",
+    S.PENDING_PAYMENT_UNCONFIRMED: "Tu envío anterior a {nombre} no se pudo confirmar. "
+                                   "Si envías otro, {nombre} podría recibir los dos. ¿Le envío {recibe} {moneda}?",
+    S.PENDING_PAYMENT_UNCONFIRMED_OVERRUN: "Tu envío anterior a {nombre} no se pudo confirmar y este supera tu presupuesto. "
+                                           "Si sigues, {nombre} podría recibir los dos. ¿Lo autorizas en tu billetera?",
+    S.NEW_RECIPIENT: "Es la primera vez que le envías a {nombre}. Por seguridad, escribe tu PIN en el teclado.",
+    S.HIGH_AMOUNT: "Es un monto alto. Por seguridad, escribe tu PIN en el teclado.",
+    S.PIN_WRONG: "PIN incorrecto. Te quedan {n} intentos.",
+    S.PIN_ATTEMPTS_EXHAUSTED: "No pude verificarte. No envié nada.",
+    S.PIN_LOCKED: "Por seguridad, el PIN está bloqueado. No envié nada.",
+    S.PIN_INVALID_FORMAT: "El PIN tiene entre 4 y 6 números. Escríbelo otra vez.",
+    S.REPLY_UNCLEAR_REJECTED: "No pude confirmar tu respuesta. No envié nada.",
 }
 NO_DECIMALS = "Solo puedo enviar montos sin decimales. ¿Me lo dices otra vez?"
 NOT_FOUND_GENERIC = "No encontré a esa persona en tu agenda."
+PIN_WRONG_ONE = "PIN incorrecto. Te queda 1 intento."
+# Costo = débito - recibido (payments-client, "Monto que se dice en el recibo del pago"), con enteros.
 COST_SUFFIX = " Te costó {costo} {moneda}."
 REQUIRED = {
+    S.PENDING_PAYMENT_SAME_RECIPIENT: {"name"},
+    S.PENDING_PAYMENT_UNCONFIRMED: {"amount", "name"},
+    S.PENDING_PAYMENT_UNCONFIRMED_OVERRUN: {"name"},
+    S.NEW_RECIPIENT: {"name"},
+    S.PIN_WRONG: {"remaining"},
     S.TOO_MANY_DECIMALS: {"scale"},
     S.NOT_FOUND: {"spoken"},
     S.CHOICE: {"names"},
@@ -119,7 +156,14 @@ def say(situation: Situation, **params) -> str:
         return TEMPLATES[situation].format(opciones=", ".join(names[:-1]) + " o " + names[-1])
     if situation is S.NEAR:
         return TEMPLATES[situation].format(nombre=_name(params["name"]))
-    if situation in (S.CONFIRM, S.CONFIRM_UNCLEAR, S.COMPLETED):
+    if situation is S.PIN_WRONG:
+        n = params["remaining"]
+        if type(n) is not int or n < 1:
+            raise ValueError(f"remaining must be an int >= 1, got {n!r}")   # con 0 intentos es PIN_ATTEMPTS_EXHAUSTED
+        return PIN_WRONG_ONE if n == 1 else TEMPLATES[situation].format(n=n)
+    if situation in (S.NEW_RECIPIENT, S.PENDING_PAYMENT_SAME_RECIPIENT, S.PENDING_PAYMENT_UNCONFIRMED_OVERRUN):
+        return TEMPLATES[situation].format(nombre=_name(params["name"]))
+    if situation in (S.CONFIRM, S.CONFIRM_UNCLEAR, S.COMPLETED, S.PENDING_PAYMENT_UNCONFIRMED):
         amount = _amount(params["amount"])
         recibe, moneda = _money(amount)
         text = TEMPLATES[situation].format(recibe=recibe, moneda=moneda, nombre=_name(params["name"]))
@@ -128,7 +172,11 @@ def say(situation: Situation, **params) -> str:
             debit = _amount(debit)
             if (debit.asset_code, debit.asset_scale) != (amount.asset_code, amount.asset_scale):
                 raise ValueError("debit and amount must share assetCode and assetScale")
-            if debit.value != amount.value:
-                text += COST_SUFFIX.format(costo=format_amount(debit), moneda=moneda)
+            cost = int(debit.value) - int(amount.value)
+            if cost < 0:
+                raise ValueError("debit cannot be lower than the amount received")
+            if cost > 0:
+                paid = Amount(str(cost), amount.asset_code, amount.asset_scale)
+                text += COST_SUFFIX.format(costo=format_amount(paid), moneda=moneda)
         return text
     return TEMPLATES[situation]
