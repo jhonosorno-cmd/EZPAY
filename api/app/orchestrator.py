@@ -78,8 +78,14 @@ class Orchestrator:
         self.budget_grant_id: str | None = None
         self.budget_status: str | None = None
         self.history: set[str] = set()  # wallets con pago COMPLETED (D9, R7)
+        self._current_op: str | None = None
 
     # ------------------------------------------------------------------ turnos
+    def _node_call(self, op: str, fn, request_id: str | None):
+        """Llama a Node registrando la operación en curso (para logs sin cuerpos)."""
+        self._current_op = op
+        return fn()
+
     def handle_turn(self, session, *, audio_bytes=None, text=None, request_id=None) -> dict:
         try:
             return self._dispatch(session, audio_bytes, text, request_id)
@@ -90,6 +96,8 @@ class Orchestrator:
             raise TurnError(500, "INTERNAL_ERROR", "Error interno") from None
         except InvalidContextError:
             raise TurnError(500, "INTERNAL_ERROR", "Error interno") from None
+        finally:
+            self._current_op = None
 
     def _dispatch(self, session, audio_bytes, text, request_id) -> dict:
         if session.state is TurnState.AWAITING_PIN:
@@ -128,11 +136,15 @@ class Orchestrator:
             and intent["recipient"] is not None
             and resolution["kind"] == Kind.RESOLVED.value
         ):
-            quote = self.payments.create_quote(
-                self.budget_grant_id,
-                resolution["contact"]["walletAddress"],
-                intent["amount"]["value"],
-                request_id=request_id,
+            quote = self._node_call(
+                "create_quote",
+                lambda: self.payments.create_quote(
+                    self.budget_grant_id,
+                    resolution["contact"]["walletAddress"],
+                    intent["amount"]["value"],
+                    request_id=request_id,
+                ),
+                request_id,
             )
         context = build_context(
             phase="COMMAND",
@@ -234,13 +246,17 @@ class Orchestrator:
 
         if decision.decision is DecisionType.REQUIRE_AUTH:
             if decision.reason.value == "NO_BUDGET_GRANT":
-                grant = self.payments.create_grant(
-                    DEMO_USER_ID,
-                    _wallet_address(),
-                    f"{FRONTEND_ORIGIN}/grant-callback",
-                    intent["amount"]["value"],
-                    interval=None,
-                    request_id=request_id,
+                grant = self._node_call(
+                    "create_grant",
+                    lambda: self.payments.create_grant(
+                        DEMO_USER_ID,
+                        _wallet_address(),
+                        f"{FRONTEND_ORIGIN}/grant-callback",
+                        intent["amount"]["value"],
+                        interval=None,
+                        request_id=request_id,
+                    ),
+                    request_id,
                 )
                 self.budget_grant_id = grant["grantId"]
                 self.budget_status = "PENDING"
@@ -289,7 +305,7 @@ class Orchestrator:
         """INVALID_REQUEST de Node es defecto propio: se registra solo código y operación."""
         _logger.info(json.dumps({
             "event": "orchestrator_error",
-            "op": "payments",
+            "op": self._current_op or "payments",
             "code": exc.code,
             "requestId": request_id,
         }, ensure_ascii=False))

@@ -126,7 +126,9 @@ def create_app(
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):
-        return _error(exc.status_code, "INVALID_REQUEST", "La petición no es válida")
+        # Contrato v1.2 (AB-1): toda petición mal formada o ruta desconocida es 400 INVALID_REQUEST.
+        # SESSION_NOT_FOUND no pasa por aquí: es un handler propio del store (404).
+        return _error(400, "INVALID_REQUEST", "La petición no es válida")
 
     from fastapi.exceptions import RequestValidationError
 

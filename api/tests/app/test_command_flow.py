@@ -182,6 +182,42 @@ class CommandFlowTest(unittest.TestCase):
         text_turn(self.client, "envíale veinte mil a mi hija", headers={"X-Request-Id": "turno-abc"})
         self.assertEqual(self.node.last_header("X-Request-Id"), "turno-abc")
 
+    def test_invalid_request_from_node_is_internal_error_and_logs_code_and_operation(self):
+        """AB-1: INVALID_REQUEST de Node es defecto propio del orquestador.
+
+        El turno responde 500 INTERNAL_ERROR y el log lleva solo el código y la
+        operación: nada de cuerpos ni datos del request.
+        """
+        import logging
+
+        class Capture(logging.Handler):
+            def __init__(self):
+                super().__init__()
+                self.lines = []
+
+            def emit(self, record):
+                self.lines.append(record.getMessage())
+
+        capture = Capture()
+        logger = logging.getLogger("api.app")
+        logger.addHandler(capture)
+        self.addCleanup(logger.removeHandler, capture)
+
+        self.app.state.orchestrator.budget_grant_id = node_double.GRANT_ID
+        self.app.state.orchestrator.budget_status = "ACTIVE"
+        self.node.quote_response = (400, {"error": {"code": "INVALID_REQUEST", "message": "La petición no es válida"}})
+
+        r = text_turn(self.client, "envíale veinte mil a mi hija")
+        self.assertEqual(r.status_code, 500)
+        contract.validate_response("POST", "/api/turns", 500, r.json())
+        self.assertEqual(r.json()["error"]["code"], "INTERNAL_ERROR")
+        defect_lines = [line for line in capture.lines if "orchestrator_error" in line]
+        self.assertTrue(defect_lines, "el defecto de Node debe quedar registrado")
+        self.assertIn("INVALID_REQUEST", defect_lines[0])
+        self.assertIn("create_quote", defect_lines[0])
+        self.assertNotIn("veinte mil", defect_lines[0])
+        self.assertNotIn("mi hija", defect_lines[0])
+
     def test_node_unreachable_answers_internal_error(self):
         """Contrato B /api/turns no define 502: Node inalcanzable -> 500 INTERNAL_ERROR (fail-closed)."""
         import httpx

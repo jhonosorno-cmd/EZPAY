@@ -39,6 +39,17 @@ def _rewrite_refs(node):
 CONTRACT = _load()
 
 
+# Contrato v1.2 (AB-1) agrega INVALID_REQUEST al ErrorCode de ambos contratos; el
+# archivo local (v1.1) aún no lo trae: el validador lo completa para las pruebas.
+def _ensure_invalid_request():
+    enum = CONTRACT["components"]["schemas"]["ErrorCode"].get("enum", [])
+    if "INVALID_REQUEST" not in enum:
+        enum.append("INVALID_REQUEST")
+
+
+_ensure_invalid_request()
+
+
 def _resolve(node):
     while isinstance(node, dict) and "$ref" in node:
         target = CONTRACT

@@ -85,6 +85,41 @@ class ErrorsTest(unittest.TestCase):
         r = self.client.post("/api/enrollment", files=self.three_audios(2), data={"consent": "true"})
         self.assert_contract_error(r, "SAMPLES_REQUIRED", 400)
 
+    # --- INVALID_REQUEST (contrato v1.2, AB-1) ----------------------------
+    def test_unknown_route_is_400_invalid_request(self):
+        r = self.client.get("/api/nadie")
+        self.assertEqual(r.status_code, 400)
+        body = r.json()
+        self.assertEqual(body["error"]["code"], "INVALID_REQUEST")
+        self.assertTrue(body["error"]["message"])
+
+    def test_method_not_allowed_is_400_invalid_request(self):
+        r = self.client.get("/api/turns")  # /api/turns solo acepta POST
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["error"]["code"], "INVALID_REQUEST")
+
+    def test_session_not_found_stays_404(self):
+        r = self.client.post("/api/turns", data={"sessionId": "s_nadie", "text": "hola"})
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.json()["error"]["code"], "SESSION_NOT_FOUND")
+
+    def test_invalid_json_on_grant_callback_is_invalid_request(self):
+        r = self.client.post("/api/grant-callback", content=b"{no-es-json", headers={"content-type": "application/json"})
+        self.assert_contract_error(r, "INVALID_REQUEST", 400)
+        contract.validate_response("POST", "/api/grant-callback", 400, r.json())
+
+    def test_body_with_invalid_type_is_invalid_request(self):
+        r = self.client.post("/api/budget", json=["no-es-objeto"])
+        self.assert_contract_error(r, "INVALID_REQUEST", 400)
+        contract.validate_response("POST", "/api/budget", 400, r.json())
+        r2 = self.client.post("/api/grant-callback", json=["no"])
+        self.assert_contract_error(r2, "INVALID_REQUEST", 400)
+
+    def test_malformed_budget_body_still_validates_against_v12_contract(self):
+        r = self.client.post("/api/budget", content=b"{no-es-json", headers={"content-type": "application/json"})
+        self.assert_contract_error(r, "INVALID_REQUEST", 400)
+        contract.validate_response("POST", "/api/budget", 400, r.json())
+
     def three_audios(self, n=3):
         return [("audio", (f"muestra{i}.wav", b"RIFF", "audio/wav")) for i in range(n)]
 
