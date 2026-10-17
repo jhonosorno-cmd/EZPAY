@@ -97,7 +97,7 @@ Con el motor y el PIN de ML 2 (`tests/decision`, `tests/pin`) la suite completa 
 
 ## Riesgos conocidos y pendientes menores
 
-- `20,000` se lee como 20 pesos (regla es-CO del spec, H-4). Lo cubre la confirmación hablada con la cifra.
+- `20,000` y `150,000` (coma con tres dígitos que terminan en cero) son `AMBIGUOUS_AMOUNT` y se vuelve a preguntar: Groq escribe la coma como separador de miles. Antes se leían como 20 y 150 pesos (H-4, cambiado el 17 oct tras la prueba "lejos" de H3).
 - "la ura" (nombre partido por la transcripción) da `NOT_FOUND` en vez de ofrecer las dos Lauras. Seguro.
 - "…a Laura vecina gracias" deja "gracias" en el destinatario, y la agenda no lo encuentra. Seguro.
 - "José" con un carácter invisible pegado se resuelve a José (el invisible separa palabras). La

@@ -97,9 +97,11 @@ Si el monto tiene más decimales que `assetScale`, el parser MUST responder `TOO
 - **WHEN** el parser convierte "1,005" con `assetScale: 2`
 - **THEN** responde `TOO_MANY_DECIMALS`
 
-#### Scenario: Cero sobrante
-- **WHEN** el parser convierte "10,500" con `assetScale: 2`
-- **THEN** el resultado es `{ value: "1050" }`
+#### Scenario: Coma con tres dígitos que terminan en cero
+- **WHEN** el parser convierte "150,000" o "10,500" con `assetScale: 2`
+- **THEN** responde `AMBIGUOUS_AMOUNT`
+- **AND** no devuelve ningún monto
+- **NOTE** Esperaba 150 pesos y 10,50; pasó que la transcripción de Groq escribe la coma como separador de miles ("$150,000" por ciento cincuenta mil). Cambio: se pregunta de nuevo (17 oct, prueba "lejos" de H3).
 
 #### Scenario: Escala cero
 - **WHEN** el parser convierte "10,50" con `assetScale: 0`
