@@ -4,13 +4,13 @@ Estado de `api/voice/` al cierre del Paso 2 de las capabilities de H1, más el c
 (ver "Cambios posteriores"). Lo escribió Claude Code (Claude Opus 5.5; Claude Sonnet 5.5 en los cambios
 posteriores) con revisión de Sebastián pendiente salvo en `amount-parsing` (ver `AI_USAGE.md`).
 Pruebas del módulo: desde `api/`, `PYTHONPATH=. .venv/Scripts/python.exe -m pytest tests/voice -q`.
-Con el motor y el PIN de ML 2 (`tests/decision`, `tests/pin`) la suite completa de `api/` suma 1.044 (con el esqueleto FastAPI y el cliente de Pagos instalados).
+Con el motor y el PIN de ML 2 (`tests/decision`, `tests/pin`) la suite completa de `api/` suma 1.070 (con el esqueleto FastAPI y el cliente de Pagos instalados).
 
 ## Pruebas por capability
 
 | Capability | Archivo de código | Archivo de pruebas | Pruebas que pasan |
 |---|---|---|---|
-| `amount-parsing` | `amounts.py` | `test_amounts.py` | 204 |
+| `amount-parsing` | `amounts.py` | `test_amounts.py` | 206 |
 | `reply-classification` | `replies.py` | `test_replies.py` | 72 |
 | `say` (catálogo de `contrato-voz.md` §7 con `PAYMENT_PENDING` de v1.1, más las 13 situaciones del motor: 34 en total) | `phrases.py` | `test_phrases.py` | 89 |
 | `speech-transcription` (H2: `transcribe` y motores) | `transcribe.py`, `engines.py` | `test_transcribe.py`, `test_engines.py` | 60 |
@@ -19,8 +19,8 @@ Con el motor y el PIN de ML 2 (`tests/decision`, `tests/pin`) la suite completa 
 | Forma para el motor: `to_dict()` con los nombres del `context` de ML 2 | `intents.py`, `contacts.py` | `test_context_shapes.py` | 19 |
 | Todo el paquete: sin LLM, sin red, sin disco, sin float | `text.py`, `config.py` | `test_package.py` | 23 |
 | `confirmation-challenge` (banco de 30 frases, `phrase_match`, textos del desafío) | `challenge.py`, `challenge_phrases.json` | `test_challenge.py` | 35 |
-| Scripts de prueba a mano (registro de la batería y del desafío, JSON por rol) | `scripts/bateria.py`, `desafio.py`, `salidas.py` | `test_bateria.py`, `test_desafio.py`, `test_salidas.py` | 38 |
-| **Total del módulo** | | | **700** |
+| Scripts de prueba a mano (batería, desafío, JSON por rol y modo libre, nivel del micrófono, escuchar y regrabar) | `scripts/bateria.py`, `desafio.py`, `salidas.py`, `audio_nivel.py`, `revision.py` | `test_bateria.py`, `test_desafio.py`, `test_salidas.py`, `test_audio_nivel.py`, `test_revision.py` | 62 |
+| **Total del módulo** | | | **726** |
 
 ## Cobertura de la gramática de intención (`docs/voz/frases-desarrollo.md` §D, 30 frases)
 
@@ -114,6 +114,13 @@ local fuera del repo (sin audio). El resumen es este; las transcripciones de voc
   global) y ya deja pasar una palabra corta; y un monto con coma de tres dígitos (`$150,000`, `73,450`) se lee como miles en vez de 150 pesos.
 - **Hallazgo pospuesto:** Whisper agrega una "Y" al inicio cuando se empieza de golpe y la gramática de intención la rechaza
   (`UNKNOWN`, seguro). Se espera a la grabación que arranca cuando el navegador lo confirma (PR #9 del Frontend).
+- **Pruebas con montos y nombres poco usuales** (`probar_salidas.py --libre`, 20 frases sugeridas): la gramática acepta
+  `10.300`, `101.000`, "diez mil trescientos", "un millón quinientos mil", etc.; un nombre que no está en la agenda da `NOT_FOUND` y uno
+  parecido ("mi tía", "Lauro") pregunta cuál. La prueba real con voz mostró que Whisper a veces deforma las primeras palabras
+  ("Envíale" → "Le trae", "Paga" → "Agradece a la obra"): el micrófono del portátil estaba al 94 % de ganancia y la señal
+  saturaba (pico 1,00). Los scripts ahora esperan con el micrófono abierto antes de "habla ahora", muestran el nivel
+  (`MUY BAJO`, `SATURADO`, `MUCHO RUIDO`), dejan escuchar y regrabar, y permiten elegir el micrófono (`set EZPAY_MICROFONO=N`).
+- **Monto con coma:** `73,450` (Groq escribe así los miles) ahora se lee como 73.450; ver "Riesgos".
 - **Cortes de confianza (3b):** con una sola voz y `transcriptConfidence` en `null` no hay de dónde calibrarlos; se ratifica `null`
   (regla P-10 de `tasks.md` 3.5). Lo que sí salió es la exactitud con ruido de arriba.
 
@@ -133,6 +140,9 @@ Pendiente: cambiar las frases flojas por otras que empiecen con una palabra larg
 - "…a Laura vecina gracias" deja "gracias" en el destinatario, y la agenda no lo encuentra. Seguro.
 - "José" con un carácter invisible pegado se resuelve a José (el invisible separa palabras). La
   confirmación hablada sigue siendo obligatoria.
+- **Formato del audio en la demo (Mac):** la web graba con el formato por defecto del navegador. Chrome entrega WebM (aceptado);
+  Safari entrega MP4/AAC y Firefox Ogg, que `transcribe` rechaza como `INVALID_AUDIO`. Hay que confirmar que la demo va en Chrome o
+  aceptar esos formatos (el decodificador `av` ya los lee). Pendiente de una grabación real desde la Mac (X-4).
 - La agenda es provisional y ficticia (`ezpay-placeholder-*`). Pagos la reemplaza antes de la demo.
 - Los ejemplos de `say` de `contract-b.yaml` ("¿Le envío 20 mil a Laura?") difieren del catálogo
   ("20.000 pesos"); es un ejemplo del mock y lo corrige Pagos.
