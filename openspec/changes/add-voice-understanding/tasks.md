@@ -20,6 +20,8 @@
 - [ ] 3.4 H2: `transcribe` recibe `consentExterno: bool` y entrega `transcriptConfidence` (`null` en H1/H2); `extract_intent` entrega `intentConfidence` (`null` mientras la intención salga solo de reglas); el orquestador pasa ambos al `context`. Dueño: ML 1
 - [ ] 3.5 H3 y H4: pruebas con ruido (audios fuera del repo) y pulido de frases y de `say`; con esa batería se proponen los cortes de confianza ([DECIDIDO, 2026-10-16]: si el sábado 17 antes de las 10:00 no hay evidencia, se ratifica `null` y se anota en `docs/decisiones.md`, P-10). Dueño: ML 1
 
+- [ ] 3.6 Desafío de confirmación por voz (decidido el 17 oct): banco de 30 frases, `phrase_match` con corte 0,80, `CONFIRM_CHALLENGE` y `CHALLENGE_RETRY` en `say` (capability `confirmation-challenge`). Dueño: ML 1
+
 ## 4. Cierre
 
 - [ ] 4.1 Archivar con `openspec archive add-voice-understanding` después de 1.2, 1.3 y 1.4. Dueño: Sebastián
