@@ -1,4 +1,4 @@
-"""Escenarios del spec pin-validation: alta por configuración, formato,
+﻿"""Escenarios del spec pin-validation: alta por configuración, formato,
 contadores, privacidad e interfaz del componente. Incluye pruebas del script
 make_pin_hash (el hash se genera dentro de la prueba con scrypt barato; nunca
 hay un PIN ni un hash real en los archivos)."""
@@ -27,6 +27,20 @@ TEST_PIN = "1234"
 def cheap_provider(pin_str=TEST_PIN):
     spec = build_hash_spec(pin_str, **CHEAP)
     return lambda: spec
+
+
+class EstadoTemporalBase(unittest.TestCase):
+    """H2: el estado global persiste; cada prueba usa su propio directorio
+    temporal para no compartir (ni tocar) el estado real de api/.data/pin/."""
+
+    def setUp(self):
+        import tempfile
+
+        self.temporal = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporal.cleanup)
+
+    def validator(self, hash_provider=None):
+        return PinValidator(hash_provider=hash_provider or cheap_provider(), data_dir=self.temporal.name)
 
 
 class TestMakePinHash(unittest.TestCase):
@@ -85,23 +99,23 @@ class TestMakePinHash(unittest.TestCase):
         self.assertNotIn(f"{PIN_HASH_ENV}=", buffer.getvalue())
 
 
-class AltaPorConfiguracionNuncaEnClaro(unittest.TestCase):
+class AltaPorConfiguracionNuncaEnClaro(EstadoTemporalBase):
     def test_sin_pin_configurado_nunca_ok(self):
-        validator = PinValidator(hash_provider=lambda: None)
+        validator = self.validator(lambda: None)
         for attempt in ("1234", "0000", "123456"):
             result = validator.verify(attempt, "s1")
             self.assertEqual(result.result, "WRONG")
             self.assertNotEqual(result.result, "OK")
 
     def test_sin_pin_configurado_consum_intentos(self):
-        validator = PinValidator(hash_provider=lambda: None)
+        validator = self.validator(lambda: None)
         validator.verify("1234", "s1")
         validator.verify("1234", "s1")
         third = validator.verify("1234", "s1")
         self.assertEqual(third.sessionFailures, 3)
 
     def test_spec_malformado_falla_cerrado_sin_pin_en_el_error(self):
-        validator = PinValidator(hash_provider=lambda: "no-es-un-hash")
+        validator = self.validator(lambda: "no-es-un-hash")
         with self.assertRaises(PinError) as ctx:
             validator.verify(TEST_PIN, "s1")
         self.assertNotIn(TEST_PIN, str(ctx.exception))
@@ -110,16 +124,16 @@ class AltaPorConfiguracionNuncaEnClaro(unittest.TestCase):
         self.assertEqual(PIN_HASH_ENV, "EZPAY_PIN_HASH")
 
 
-class FormatoYComparacionEnTiempoConstante(unittest.TestCase):
+class FormatoYComparacionEnTiempoConstante(EstadoTemporalBase):
     def test_formato_invalido(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         for bad in ("abcd", "12a4", "123", "1234567", "12 4", "", "12.4"):
             result = validator.verify(bad, "s1")
             self.assertEqual(result.result, "INVALID_FORMAT", repr(bad))
             self.assertEqual(result.sessionFailures, 0)
 
     def test_formato_invalido_no_altera_los_contadores(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         validator.verify("9999", "s1")
         validator.verify("9999", "s1")
         after_invalid = validator.verify("12a4", "s1")
@@ -128,7 +142,7 @@ class FormatoYComparacionEnTiempoConstante(unittest.TestCase):
         self.assertEqual(after_invalid_again.sessionFailures, 2)
 
     def test_formato_valido_acepta_4_a_6_digitos(self):
-        validator = PinValidator(hash_provider=cheap_provider("12345"))
+        validator = self.validator(cheap_provider("12345"))
         for candidate in ("1234", "12345", "123456"):
             result = validator.verify(candidate, "s1")
             self.assertIn(result.result, ("OK", "WRONG"))
@@ -141,7 +155,7 @@ class FormatoYComparacionEnTiempoConstante(unittest.TestCase):
             calls.append(1)
             return original(*args, **kwargs)
 
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         with mock.patch.object(hashlib, "scrypt", counting):
             validator.verify("12a4", "s1")
         self.assertEqual(calls, [])
@@ -149,15 +163,15 @@ class FormatoYComparacionEnTiempoConstante(unittest.TestCase):
     def test_comparacion_usa_hmac_compare_digest(self):
         import hmac as hmac_module
 
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         with mock.patch.object(pin_module.hmac, "compare_digest", wraps=hmac_module.compare_digest) as spy:
             validator.verify("9999", "s1")
         self.assertTrue(spy.called)
 
 
-class ContadoresDeIntentos(unittest.TestCase):
+class ContadoresDeIntentos(EstadoTemporalBase):
     def test_tercer_fallo_de_la_sesion(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         first = validator.verify("9999", "s1")
         self.assertEqual((first.result, first.sessionFailures, first.remaining), ("WRONG", 1, 2))
         second = validator.verify("9999", "s1")
@@ -166,14 +180,14 @@ class ContadoresDeIntentos(unittest.TestCase):
         self.assertEqual((third.result, third.sessionFailures, third.remaining, third.locked), ("WRONG", 3, 0, False))
 
     def test_sesiones_aisladas(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         validator.verify("9999", "s1")
         validator.verify("9999", "s1")
         other = validator.verify("9999", "s2")
         self.assertEqual(other.sessionFailures, 1)
 
     def test_bloqueo_global_al_quinto_fallo(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         for i in range(4):
             result = validator.verify("9999", f"s{i}")
             self.assertFalse(result.locked, i)
@@ -182,7 +196,7 @@ class ContadoresDeIntentos(unittest.TestCase):
         self.assertTrue(fifth.locked)
 
     def test_con_el_pin_bloqueado_no_se_validan_mas_intentos(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         for i in range(5):
             validator.verify("9999", f"s{i}")
         with mock.patch.object(hashlib, "scrypt", side_effect=AssertionError("no debe invocar el KDF")):
@@ -192,7 +206,7 @@ class ContadoresDeIntentos(unittest.TestCase):
         self.assertEqual(result.remaining, 0)
 
     def test_bloqueo_global_acumulado_entre_sesiones(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         for i in range(3):
             validator.verify("9999", "s1")
         for i in range(2):
@@ -200,7 +214,7 @@ class ContadoresDeIntentos(unittest.TestCase):
         self.assertTrue(result.locked)
 
     def test_pin_correcto_reinicia_el_contador_global(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         validator.verify("9999", "s1")
         validator.verify("9999", "s2")
         ok = validator.verify(TEST_PIN, "s3")
@@ -210,7 +224,7 @@ class ContadoresDeIntentos(unittest.TestCase):
             self.assertFalse(result.locked, i)
 
     def test_pin_correcto_no_reinicia_el_contador_de_sesion(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         validator.verify("9999", "s1")
         validator.verify("9999", "s1")
         ok = validator.verify(TEST_PIN, "s1")
@@ -218,16 +232,21 @@ class ContadoresDeIntentos(unittest.TestCase):
         again = validator.verify("9999", "s1")
         self.assertEqual(again.sessionFailures, 3)
 
-    def test_reinicio_del_backend_en_h1(self):
-        validator = PinValidator(hash_provider=cheap_provider())
-        validator.verify("9999", "s1")
-        validator.verify("9999", "s1")
-        fresh = PinValidator(hash_provider=cheap_provider())
-        result = fresh.verify(TEST_PIN, "s1")
-        self.assertEqual((result.result, result.sessionFailures, result.locked), ("OK", 0, False))
+    def test_reinicio_del_proceso_con_estado_persistido(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temporal:
+            validator = PinValidator(hash_provider=cheap_provider(), data_dir=temporal)
+            validator.verify("9999", "s1")
+            validator.verify("9999", "s1")
+            fresh = PinValidator(hash_provider=cheap_provider(), data_dir=temporal)
+            # H2: el global persistido carga 2 fallos; el de sesión empieza en 0
+            self.assertEqual(fresh._global_failures, 2)
+            result = fresh.verify(TEST_PIN, "s1")
+            self.assertEqual((result.result, result.sessionFailures, result.locked), ("OK", 0, False))
 
     def test_script_de_reinicio(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         for i in range(5):
             validator.verify("9999", f"s{i}")
         self.assertTrue(validator.verify("9999", "s5").locked)
@@ -236,23 +255,23 @@ class ContadoresDeIntentos(unittest.TestCase):
         self.assertEqual((ok.result, ok.locked, ok.sessionFailures), ("OK", False, 0))
 
 
-class PrivacidadDelPin(unittest.TestCase):
+class PrivacidadDelPin(EstadoTemporalBase):
     def test_el_pin_no_aparece_en_repr_del_resultado(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         result = validator.verify("9999", "s1")
         self.assertNotIn("9999", repr(result))
         ok = validator.verify(TEST_PIN, "s1")
         self.assertNotIn(TEST_PIN, repr(ok))
 
     def test_el_pin_no_aparece_en_excepciones(self):
-        validator = PinValidator(hash_provider=lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+        validator = self.validator(lambda: (_ for _ in ()).throw(RuntimeError("boom")))
         with self.assertRaises(PinError) as ctx:
             validator.verify(TEST_PIN, "s1")
         self.assertNotIn(TEST_PIN, str(ctx.exception))
         self.assertNotIn(TEST_PIN, repr(ctx.exception))
 
     def test_el_pin_no_va_a_stdout_ni_a_logs(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         buffer = io.StringIO()
         with redirect_stdout(buffer):
             validator.verify("9999", "s1")
@@ -261,9 +280,9 @@ class PrivacidadDelPin(unittest.TestCase):
         self.assertNotIn("9999", buffer.getvalue())
 
 
-class SesionAgotadaDefensaEnProfundidad(unittest.TestCase):
+class SesionAgotadaDefensaEnProfundidad(EstadoTemporalBase):
     def test_sesion_con_tres_fallos_no_valida_mas(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         for _ in range(3):
             validator.verify("9999", "s1")
         with mock.patch.object(hashlib, "scrypt", side_effect=AssertionError("no debe invocar el KDF")):
@@ -271,7 +290,7 @@ class SesionAgotadaDefensaEnProfundidad(unittest.TestCase):
         self.assertEqual((fourth.result, fourth.sessionFailures, fourth.remaining, fourth.locked), ("WRONG", 3, 0, False))
 
     def test_sesion_agotada_no_mueve_contadores(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         for _ in range(3):
             validator.verify("9999", "s1")
         global_before = validator._global_failures
@@ -281,16 +300,16 @@ class SesionAgotadaDefensaEnProfundidad(unittest.TestCase):
         self.assertEqual(validator._session_failures["s1"], 3)
 
     def test_otra_sesion_sigue_pudiendo_validar(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         for _ in range(3):
             validator.verify("9999", "s1")
         ok = validator.verify(TEST_PIN, "s2")
         self.assertEqual(ok.result, "OK")
 
 
-class Concurrencia(unittest.TestCase):
+class Concurrencia(EstadoTemporalBase):
     def test_20_intentos_fallidos_en_paralelo(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         from concurrent.futures import ThreadPoolExecutor
 
         def attempt(i):
@@ -304,24 +323,24 @@ class Concurrencia(unittest.TestCase):
         self.assertTrue(validator._locked)
 
 
-class FormatoAscii(unittest.TestCase):
+class FormatoAscii(EstadoTemporalBase):
     def test_digitos_no_ascii_rechazados(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         for bad in ("²³⁴⁵", "١٢٣٤", "１２３４"):
             result = validator.verify(bad, "s1")
             self.assertEqual(result.result, "INVALID_FORMAT", repr(bad))
             self.assertEqual(result.sessionFailures, 0)
 
     def test_espacios_y_saltos_de_linea_rechazados(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         for bad in (" 1234", "1234\n", "1 234", "\t1234"):
             result = validator.verify(bad, "s1")
             self.assertEqual(result.result, "INVALID_FORMAT", repr(bad))
 
 
-class LimiteDeSesionesEnMemoria(unittest.TestCase):
+class LimiteDeSesionesEnMemoria(EstadoTemporalBase):
     def test_sesiones_descartan_la_mas_antigua(self):
-        validator = PinValidator(hash_provider=cheap_provider())
+        validator = self.validator()
         for i in range(1001):
             validator.verify("9999", f"s{i}")
             ok = validator.verify(TEST_PIN, f"aux{i}")

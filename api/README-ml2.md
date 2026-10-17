@@ -22,9 +22,12 @@ decision/
 pin/
   pin.py           # PinValidator (verify, reset_lock), verify_pin, reset_pin_lock,
                    # is_valid_pin, build_hash_spec
+  store.py         # estado global persistido {"globalFailures", "locked"} en
+                   # EZPAY_PIN_DATA_DIR (o api/.data/pin/); nunca PIN/hash/sesiones
 scripts/
   make_pin_hash.py         # alta del PIN: getpass -> EZPAY_PIN_HASH para .env
-  reset_pin_lock.py        # reinicio del bloqueo (H1: contador en memoria del proceso)
+  reset_pin_lock.py        # reinicio del estado PERSISTIDO del bloqueo (y reparación
+                           # de archivo corrupto); el backend en marcha lo recarga al reiniciar
   delete_voiceprint.py     # borra la huella del hablante y el consentimiento (PRIV-3)
 speaker/
   audio.py         # trim_silence (calibración 15 oct: frame=320, pad=0.25) y duracion_voz_util
@@ -35,7 +38,7 @@ speaker/
                    # INVALID_AUDIO → INCONSISTENT_SAMPLES
   store.py         # embeddings + consent.json, NUNCA audio (PRIV-1); .data/ fuera de git
 tests/decision/        # motor y context_io (+ fixtures con las formas reales de Voz y de los mocks)
-tests/pin/             # componente de PIN y script de alta
+tests/pin/             # componente de PIN, script de alta y persistencia del estado global
 tests/speaker/         # verificación, enrolamiento, privacidad e integración con el modelo real
 .env.example           # solo EZPAY_PIN_HASH= con comentario; sin valores reales
 ```
@@ -88,7 +91,8 @@ result = decide_dict(data)  # -> {"decision": "ASK_PIN", "reason": "VOICE_NOT_VE
 
 # 2. turno de PIN: el resultado de verify_pin entra al context (context.pin)
 result = verify_pin(pin, session_id)  # PinResult(result, sessionFailures, remaining, locked)
-reset_pin_lock()                       # levanta el bloqueo global (script o ruta de admin)
+reset_pin_lock()                       # levanta el bloqueo global (ruta de admin del
+                                       # orquestador) y PERSISTE el estado limpio
 
 # 3. qué dice el sistema: el único catálogo de textos es el de Voz
 nombre = say_situation(decision, context)  # -> "PIN_KEYBOARD", "CONFIRM", None (CONFIRMED)...
@@ -111,7 +115,14 @@ SpeakerEnrollment(verifier).enroll(samples, consent=True)  # {"enrolled": True} 
   trata `InvalidContextError` como **error interno: no se paga**.
 - **`verify_pin`**: nunca devuelve `OK` sin `EZPAY_PIN_HASH` en `.env` (falla
   cerrado). El PIN no sale de Python: no va a logs, ni a `error.message`, ni
-  fuera del backend.
+  fuera del backend. H2: el contador global y el bloqueo **persisten** en
+  `{"globalFailures", "locked"}` (JSON) bajo `EZPAY_PIN_DATA_DIR` — por
+  defecto `api/.data/pin/`, fuera de git — así que un reinicio del backend
+  conserva los 4 fallos previos y el 5.º bloquea, y el bloqueo sobrevive al
+  reinicio. Archivo ilegible o corrupto ⇒ falla cerrado: el validador arranca
+  bloqueado; `python scripts/reset_pin_lock.py` lo repara (escribe
+  {0, false}; el backend en marcha recarga el estado al reiniciarse). En disco
+  SOLO ese JSON: nunca el PIN, ni el hash, ni contadores de sesión.
 - **`say_situation`**: función pura que traduce `(Decision, Context)` al
   NOMBRE de la situación del catálogo de Voz; los textos viven solo en
   `voice/phrases.py`. `VOICE_SITUATIONS_EXISTING` son las 21 situaciones que

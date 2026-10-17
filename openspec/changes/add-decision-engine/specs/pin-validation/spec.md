@@ -62,14 +62,14 @@ que el tiempo de respuesta no revele información del PIN.
 - **THEN** usa `hmac.compare_digest` y el tiempo de respuesta no depende de cuántos dígitos coinciden
 
 ### Requirement: Contadores de intentos
-El componente de PIN SHALL llevar los contadores: al tercer fallo de la sesión reporta `sessionFailures >= 3` (el motor decide `REJECT`); con 5 fallos seguidos en total marca `locked: true` hasta el script de reinicio y MUST NOT validar más intentos; un PIN correcto reinicia el contador global. En H1 el contador global vive en la memoria del proceso (limitación conocida).
 
-#### Scenario: Reinicio del backend en H1
+El componente de PIN SHALL llevar dos contadores (lo exige `turn-orchestration`):
 
-- **GIVEN** 3 fallos globales acumulados y el backend corriendo
-- **WHEN** el backend se reinicia (por ejemplo, en un despliegue)
-- **THEN** el contador global vuelve a 0 y un bloqueo activo se pierde
-- **AND** en H1 el bloqueo por 5 fallos solo vale mientras el proceso vive; la persistencia queda **[DIFERIDA A H2]**
+1. **Por sesión:** al tercer fallo en la misma sesión reporta `sessionFailures >= 3`; el
+orquestador responde `REJECTED` y no paga (la decisión la emite el motor en fase `PIN`).
+2. **Global:** con 5 fallos seguidos acumulados entre sesiones marca el PIN bloqueado
+(`locked: true`) hasta correr el script de reinicio; bloqueado, MUST NOT validar intentos.
+3. Un PIN correcto reinicia el contador global de fallos.
 
 #### Scenario: Tercer fallo de la sesión
 
@@ -100,8 +100,8 @@ El componente de PIN SHALL llevar los contadores: al tercer fallo de la sesión 
 #### Scenario: Script de reinicio
 
 - **GIVEN** el PIN bloqueado
-- **WHEN** se corre el script de reinicio
-- **THEN** el bloqueo se levanta y el contador global vuelve a 0
+- **WHEN** se corre `reset_pin_lock.py`
+- **THEN** el bloqueo se levanta, el contador global vuelve a 0 y el estado persistido se reescribe
 
 #### Scenario: PIN correcto reinicia el contador global
 
@@ -109,8 +109,45 @@ El componente de PIN SHALL llevar los contadores: al tercer fallo de la sesión 
 - **WHEN** la usuaria envía el PIN correcto
 - **THEN** el componente reporta `result: "OK"` y el contador global vuelve a 0
 
+### Requirement: Persistencia del estado global
+
+El estado global (`{globalFailures, locked}`) SHALL persistirse en un archivo local fuera de git,
+junto a la huella de voz; el directorio lo fija `EZPAY_PIN_DATA_DIR` (por defecto `api/.data/pin/`).
+El archivo MUST NOT contener el PIN, el hash ni los contadores de sesión (siguen en memoria). La
+escritura SHALL ser atómica; un reinicio del backend conserva conteo y bloqueo; un archivo ilegible
+⇒ falla cerrado: bloqueado hasta correr `reset_pin_lock.py`, que reinicia el estado persistido.
+
+#### Scenario: Reinicio conserva el bloqueo
+
+- **GIVEN** el PIN bloqueado (`locked: true`) persistido
+- **WHEN** el backend se reinicia (por ejemplo, en un despliegue)
+- **THEN** el bloqueo sigue activo: los intentos no se validan hasta correr `reset_pin_lock.py`
+
+#### Scenario: Reinicio conserva el conteo
+
+- **GIVEN** 3 fallos globales acumulados y persistidos
+- **WHEN** el backend se reinicia
+- **THEN** `globalFailures` sigue en 3: dos fallos más activan el bloqueo
+
+#### Scenario: Archivo de estado corrupto ⇒ bloqueado
+
+- **GIVEN** un archivo de estado ilegible o incompleto
+- **WHEN** el componente arranca o verifica un PIN
+- **THEN** falla cerrado: trata el PIN como bloqueado hasta correr `reset_pin_lock.py`
+
+#### Scenario: El estado persistido no contiene el PIN
+
+- **GIVEN** cualquier estado persistido
+- **WHEN** se revisa el archivo de estado
+- **THEN** contiene solo `{globalFailures, locked}` — nunca el PIN, el hash ni los contadores de sesión
+
 ### Requirement: Privacidad del PIN
-El PIN MUST NOT decirse en voz alta, pasar por el LLM, el parser, la extracción de intención, el clasificador ni Whisper, ir a logs ni a `error.message`, ni salir del backend Python. En un turno de PIN, `transcript` SHALL ser `null` y el `say` MUST NOT contener ni repetir dígitos del PIN. Detalle en `design.md`.
+
+El PIN MUST NOT decirse en voz alta, ni pasar por el LLM, el parser de montos, la extracción de
+intención, el clasificador de respuestas ni Whisper. MUST NOT ir a logs ni a `error.message`, ni a
+ninguna respuesta de error. MUST NOT salir del backend Python (ni a Node ni a servicios externos):
+la validación ocurre dentro del componente de ML 2 en Python. En un turno de PIN, `transcript`
+SHALL ser `null` y el `say` nunca contiene ni repite dígitos del PIN.
 
 #### Scenario: El PIN no sale de Python
 
@@ -138,8 +175,28 @@ El PIN MUST NOT decirse en voz alta, pasar por el LLM, el parser, la extracción
 - **WHEN** se generan la respuesta de error y sus logs
 - **THEN** el PIN no aparece ni en `error.message` ni en ninguna línea de log (PRIV-4)
 
+### Requirement: Textos del PIN y repregunta
+
+Ante un PIN incorrecto, el turno SHALL seguir en `AWAITING_PIN` con los intentos restantes en el `say`,
+sin códigos HTTP nuevos (B-8). Los textos de las situaciones del PIN (`PIN_WRONG`,
+`PIN_ATTEMPTS_EXHAUSTED`, `PIN_LOCKED`, `PIN_INVALID_FORMAT`) están **[DECIDIDOS]** (2026-10-16;
+catálogo único de Voz, 2026-10-17) en el requisito "Cada reason se asocia a una situación del
+catálogo único de Voz" del spec `decision-engine`; su implementación es de ML 1 (`api/voice`).
+
+#### Scenario: Textos del PIN desde el catálogo de Voz
+
+- **GIVEN** un turno de PIN con su decisión
+- **WHEN** el orquestador arma el `say`
+- **THEN** sale de la situación del catálogo único de Voz que asigna la tabla de `decision-engine` (sin dígitos del PIN)
+
 ### Requirement: Interfaz del componente
-El componente SHALL exponer `verify_pin(pin, session_id) -> PinResult` y `reset_pin_lock()`. El resultado llega al motor vía `context.pin`; el motor MUST NOT validar el PIN ni acceder al hash. Los tipos están en `design.md`.
+
+El componente SHALL exponer `verify_pin(pin: str, session_id: str) -> PinResult` con
+`PinResult = {result: "OK" | "WRONG" | "INVALID_FORMAT", sessionFailures: int, remaining: int, locked: bool}`
+(interfaz decidida 2026-10-16 con ML 2, ML 1 y Pagos; D5) y
+`reset_pin_lock()` para el script de reinicio. El
+resultado llega al motor vía `context.pin` (`result`, `sessionFailures`, `locked`); `remaining`
+alimenta el `say` del orquestador. El motor MUST NOT validar el PIN ni acceder al hash.
 
 #### Scenario: El motor solo recibe el resultado
 

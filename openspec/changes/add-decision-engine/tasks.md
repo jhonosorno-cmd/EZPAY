@@ -3,7 +3,7 @@
 - [x] 1.1 Fijar `highAmountThreshold` con los experimentos (100.000 COP, X-4 del 17 oct)
 - [ ] 1.2 Voz propone `minIntentConfidence` y `minTranscriptConfidence` tras su batería (por defecto `null`)
 - [ ] 1.3 Comunicar a Pagos la regla 6b (aviso de pago no confirmado pasada la ventana) y confirmar el texto de su plantilla
-- [ ] 1.4 H2: persistir el contador global de fallos del PIN (en H1 vive en la memoria del proceso)
+- [x] 1.4 Persistir el contador global de fallos del PIN (`EZPAY_PIN_DATA_DIR`, por defecto `api/.data/pin/`)
 
 ## 2. H1 (viernes 14:00)
 
@@ -21,6 +21,6 @@
 - [x] 4.1 Experimento X-3: huella como promedio o como máximo por muestra
 - [x] 4.2 Experimento X-2: medir `minVerifySeconds` y la duración de la frase de la demo
 - [x] 4.3 Verificar que el modelo carga sin internet y que una verificación responde en menos de 1 s
-- [ ] 4.4 Pruebas de los escenarios de `speaker-verification` y `voice-enrollment`, escritas antes del código
-- [ ] 4.5 Implementar `embed`, `verify`, enrolamiento, persistencia y borrado de la huella en `api/`
+- [x] 4.4 Pruebas de los escenarios de `speaker-verification` y `voice-enrollment`, escritas antes del código
+- [x] 4.5 Implementar `embed`, `verify`, enrolamiento, persistencia y borrado de la huella en `api/`
 - [ ] 4.6 H3: recalibrar el umbral y el corte de consistencia con el micrófono de solapa
