@@ -106,9 +106,10 @@ local fuera del repo (sin audio). El resumen es este; las transcripciones de voc
 |---|---|---|---|---|
 | `silencio` (cuarto callado) | 10 | 8 | 0 | 1 `FILTRO_CORTO` ("Sí" cortado, corregido) y 1 `NOMBRE_MAL` ("Laura Higa") |
 | `lejos` (a ~1,5 m del portátil) | 6 | 3 | 3 (la "Y" inicial y el monto `$150,000`) | 0 |
-| `tele` | 6 | pendiente | | |
+| `tele` (tele o música de fondo) | 6 | 6 | 0 | 0 (incluso la frase con ruido salió completa: "Envíale 20.000 a Laura Hija") |
 
-- **Ningún pago equivocado** en ninguna tanda: lo que no se entendió quedó en `SEGURO` o `UNCLEAR`.
+- **Ningún pago equivocado** en ninguna de las tres tandas (22 frases): lo que no se entendió quedó en `SEGURO` o `UNCLEAR`. Con tele de
+  fondo el silencio dio texto vacío y todo lo demás salió bien; la tanda más difícil fue la de la distancia (`lejos`).
 - **Hallazgos corregidos:** el filtro de no-habla ya no deja pasar ruido sobre silencio (exige un tramo con energía, no solo el RMS
   global) y ya deja pasar una palabra corta; y un monto con coma de tres dígitos (`$150,000`) es `AMBIGUOUS_AMOUNT` en vez de 150 pesos.
 - **Hallazgo pospuesto:** Whisper agrega una "Y" al inicio cuando se empieza de golpe y la gramática de intención la rechaza
