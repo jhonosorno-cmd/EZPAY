@@ -57,7 +57,8 @@ ilegible, < 3 s o > 15 s MUST responder `400 INVALID_AUDIO` (B-3: nunca llegarí
 
 Las 3 muestras SHALL compararse entre sí; si la similitud mínima entre pares queda bajo el corte
 configurable (por defecto **0.45**, el mismo umbral de la verificación — misma persona ≥ 0.689,
-otra persona 0.16–0.23, experimentos ML 2, 15 oct; recalibración en H3), MUST responder `400 INCONSISTENT_SAMPLES` (B-5) sin crear huella.
+otra persona 0.16–0.23, experimentos ML 2, 15 oct; recalibración en H3), MUST responder `400 INCONSISTENT_SAMPLES` (B-5) sin crear huella. Confirmado en vivo: peor par por persona 0.518,
+0.686 y 0.749 — 0.45 sigue sobrando (experimentos ML 2, 17 oct, 3 personas).
 
 #### Scenario: Muestras consistentes
 
@@ -119,8 +120,9 @@ Contrato B no cambia.
 
 ### Requirement: La huella y su ciclo de vida
 
-La huella SHALL ser el promedio de los 3 embeddings, L2-normalizado **[PROPUESTA: promedio vs**
-**máximo por muestra, X-3 — sigue abierta]**. El re-enrolamiento SHALL ser atómico: si el nuevo
+La huella SHALL ser el promedio de los 3 embeddings, L2-normalizado (**[DECIDIDO 2026-10-17]**:
+X-3 — promedio gana con margen +0.104 y 0 FA/0 FR a 0.45; el máximo dio 1 falso aceptado).
+El re-enrolamiento SHALL ser atómico: si el nuevo
 registro falla cualquier validación, se conserva la huella anterior; solo un registro válido la
 reemplaza y responde `201` (B-5). El borrado va por script (PRIV-3, spec `speaker-verification`);
 solo se guardan embeddings, nunca audio crudo (PRIV-1).
@@ -142,7 +144,7 @@ solo se guardan embeddings, nunca audio crudo (PRIV-1).
 
 - **GIVEN** 3 muestras consistentes
 - **WHEN** se construye la huella
-- **THEN** es el promedio de los 3 embeddings, L2-normalizado **[PROPUESTA: promedio vs máximo, X-3]**
+- **THEN** es el promedio de los 3 embeddings, L2-normalizado (estrategia A: genuino mín. 0.508, impostor máx. 0.405, margen +0.104, 0 FA/0 FR a 0.45; el máximo dio 1 falso aceptado — experimentos ML 2, 17 oct, 3 personas)
 
 ### Requirement: Persistencia de la huella
 
