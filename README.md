@@ -28,7 +28,23 @@ todo Open Payments → Test Wallet de Interledger. Los contratos entre servicios
 
 ## How to run
 
-_Pendiente: se completa durante el evento._
+Tres procesos: Node (Open Payments) en 4000, Python (FastAPI) en 8000 y la web en 5173.
+
+```bash
+# 1. Node: wallet de Marta (la que paga) con su llave de desarrollador de la Test Wallet
+cd payments && npm install && cp .env.example .env   # WALLET_ADDRESS, KEY_ID, PRIVATE_KEY_PATH, DB_ENCRYPTION_KEY
+npm start
+# 2. Python: orquestador, voz (Groq), motor, PIN y verificación de hablante
+cd api && uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
+cp .env.example .env   # GROQ_API_KEY, EZPAY_PIN_HASH (scripts/make_pin_hash.py), EZPAY_SPEAKER_MODEL_DIR
+.venv/bin/uvicorn app.main:app --port 8000
+# 3. Web
+cd web && npm install && npm run dev   # http://localhost:5173
+```
+
+En la web: **Mis contactos** → agregar a Laura con `https://ilp.interledger-test.dev/laura` (la
+wallet se valida contra Open Payments), autorizar el presupuesto en la wallet de Marta y decir
+"envíale veinte mil a Laura". Sin Node real, `npm run mock:a` en la raíz simula el Contrato A.
 
 ### Mocks de los contratos
 

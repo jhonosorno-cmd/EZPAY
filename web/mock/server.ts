@@ -12,6 +12,7 @@
 // Para recorrer los ejemplos oficiales del contrato, usar el mock de Prism: `npm run mock:prism`.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { randomUUID } from "node:crypto"
+import { PIN_ATTEMPTS_EXHAUSTED, PIN_PROMPT, pinRetrySay } from "./phrases"
 
 const PORT = 8000
 const WEB = "http://localhost:5173"
@@ -37,6 +38,7 @@ const sessions = new Map<string, Session>()
 let budget: { limit: bigint; spent: bigint } | null = null
 let enrolled = false
 let lastSession: Session | null = null // el callback de la wallet no trae sessionId
+const extraContacts: { alias: string; name: string; walletAddress: string }[] = []
 
 const amt = (v: bigint): Amount => ({ value: v.toString(), ...ASSET })
 const pesos = (v: bigint) => (v / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")
@@ -76,7 +78,7 @@ function startCommand(s: Session, text: string, viaText: boolean) {
 }
 
 function afterRecipient(s: Session, transcript: string | null) {
-  if (s.viaText) return turn(s, "AWAITING_PIN", "Escribe tu PIN de cuatro números.", { transcript })
+  if (s.viaText) return turn(s, "AWAITING_PIN", PIN_PROMPT, { transcript })
   return confirm(s, transcript)
 }
 
@@ -130,8 +132,8 @@ function handleTurn(s: Session, text: string | null, hasAudio: boolean, kind: st
       if (hasAudio) throw { status: 400, code: "AUDIO_OR_TEXT_REQUIRED" } // el audio se descarta en el PIN
       if (t === PIN) return confirm(s, null)
       s.pinTries++
-      if (s.pinTries >= 3) { s.pending = null; return turn(s, "REJECTED", "PIN incorrecto tres veces. Cancelé el envío.") }
-      return turn(s, "AWAITING_PIN", `PIN incorrecto. Te quedan ${3 - s.pinTries} intentos.`)
+      if (s.pinTries >= 3) { s.pending = null; return turn(s, "REJECTED", PIN_ATTEMPTS_EXHAUSTED) }
+      return turn(s, "AWAITING_PIN", pinRetrySay(3 - s.pinTries))
     }
     case "AWAITING_RECIPIENT_CHOICE": {
       const c = CONTACTS.find((x) => x.alias === t || t.includes(x.alias.split("-")[1]!))
@@ -222,6 +224,29 @@ createServer(async (req, res) => {
       const out = handleTurn(s, text, form.has("audio"), form.get("kind") as string | null)
       console.log(`[mock] ${rid} /turns -> ${out.state}`)
       return send(res, 200, out)
+    }
+    // Agenda (x-proposed): el mock no consulta Open Payments; solo exige https y un nombre.
+    if (req.method === "GET" && url.pathname === "/api/contacts") {
+      const base = CONTACTS.map(({ alias, name, wallet }) => ({ alias, name, walletAddress: wallet }))
+      return send(res, 200, { contacts: [...base, ...extraContacts] })
+    }
+    if (req.method === "POST" && url.pathname === "/api/contacts") {
+      const { name, walletAddress } = JSON.parse((await readBody(req)).toString())
+      if (!/^[\p{L} ]{1,40}$/u.test(name ?? "")) throw { status: 400, code: "INVALID_CONTACT" }
+      if (!/^(https:\/\/|\$)[\w.-]+\/[\w./-]+$/.test(walletAddress ?? "")) throw { status: 400, code: "INVALID_WALLET" }
+      const alias = name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-")
+      if (extraContacts.some((c) => c.alias === alias)) throw { status: 409, code: "CONTACT_EXISTS" }
+      const c = { alias, name, walletAddress: walletAddress.replace(/^\$/, "https://") }
+      extraContacts.push(c)
+      return send(res, 201, c)
+    }
+    if (req.method === "DELETE" && url.pathname.startsWith("/api/contacts/")) {
+      const alias = decodeURIComponent(url.pathname.split("/").pop()!)
+      const i = extraContacts.findIndex((c) => c.alias === alias)
+      if (i < 0) throw { status: 404, code: "CONTACT_NOT_FOUND" }
+      extraContacts.splice(i, 1)
+      res.writeHead(204)
+      return res.end()
     }
     if (req.method === "GET" && url.pathname === "/api/enrollment") return send(res, 200, { enrolled })
     if (req.method === "POST" && url.pathname === "/api/enrollment") {

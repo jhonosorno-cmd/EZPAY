@@ -3,6 +3,7 @@ import { useConversation } from "./useConversation"
 import { Conversation } from "./screens/Conversation"
 import { GrantCallback } from "./screens/GrantCallback"
 import { Enrollment } from "./enrollment/Enrollment"
+import { Contacts } from "./screens/Contacts"
 import { DevScenario } from "./components/DevScenario"
 import { isAudioUnlocked, speak, unlockAudio } from "./voice/tts"
 
@@ -19,6 +20,7 @@ function Screens() {
   const done = useCallback(() => setRoute("/"), [])
 
   if (route === "/grant-callback") return <GrantCallback conv={conv} onDone={done} />
+  if (route === "/contactos") return <Contacts onClose={() => setRoute("/")} />
   if (route === "/registro") return <Enrollment onClose={() => { setRoute("/"); void speak(conv.view.say) }} />
 
   // El navegador no deja hablar hasta un gesto: al volver de la wallet, un toque desbloquea y relee el say.
@@ -36,5 +38,5 @@ function Screens() {
       </main>
     )
   }
-  return <Conversation conv={conv} onEnroll={() => setRoute("/registro")} />
+  return <Conversation conv={conv} onEnroll={() => setRoute("/registro")} onContacts={() => setRoute("/contactos")} />
 }

@@ -100,6 +100,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The user's agenda (the only wallets a voice command can pay, SEG-4) */
+        get: operations["listContacts"];
+        put?: never;
+        /**
+         * Add a contact after checking its Open Payments wallet address
+         * @description Python fetches the wallet address (public Open Payments GET) and accepts it only if it exists
+         *     and uses the demo currency (ASSET_CODE / ASSET_SCALE). Accepts `https://…` or a payment
+         *     pointer (`$host/path`). The user's own wallet is rejected.
+         */
+        post: operations["addContact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/contacts/{alias}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove a contact from the agenda */
+        delete: operations["deleteContact"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -108,12 +148,22 @@ export interface components {
          * @description Decide by `code`, never by `message` (CONV-2).
          * @enum {string}
          */
-        ErrorCode: "CONSENT_REQUIRED" | "SAMPLES_REQUIRED" | "INVALID_AUDIO" | "INCONSISTENT_SAMPLES" | "AUDIO_OR_TEXT_REQUIRED" | "AUDIO_TOO_LONG" | "SESSION_NOT_FOUND" | "INVALID_AMOUNT" | "UPSTREAM_ERROR" | "INTERNAL_ERROR";
+        ErrorCode: "CONSENT_REQUIRED" | "SAMPLES_REQUIRED" | "INVALID_AUDIO" | "INCONSISTENT_SAMPLES" | "AUDIO_OR_TEXT_REQUIRED" | "AUDIO_TOO_LONG" | "SESSION_NOT_FOUND" | "INVALID_AMOUNT" | "UPSTREAM_ERROR" | "INTERNAL_ERROR" | "INVALID_REQUEST" | "INVALID_WALLET" | "INVALID_CONTACT" | "CONTACT_EXISTS" | "CONTACT_NOT_FOUND";
         ErrorBody: {
             error: {
                 code: components["schemas"]["ErrorCode"];
                 message: string;
             };
+        };
+        Contact: {
+            /** @example laura */
+            alias: string;
+            /** @example Laura */
+            name: string;
+            /** @example https://ilp.interledger-test.dev/laura */
+            walletAddress: string;
+            publicName?: string | null;
+            assetCode?: string;
         };
         Budget: {
             /** @enum {string} */
@@ -165,6 +215,8 @@ export interface components {
                 alias: string;
                 name: string;
             }[] | null;
+            /** @description Voice challenge (B11, add-ml2-integration P3): in `AWAITING_CONFIRMATION`, the phrase the user must repeat out loud to confirm; `null` when a plain "sí" is enough. Picked at random from the bank, never by an LLM. */
+            challengePhrase?: string | null;
             /** @description In `COMPLETED`, and in `PAYMENT_PENDING` when a `paymentId` already exists. */
             payment: {
                 paymentId: string;
@@ -471,6 +523,113 @@ export interface operations {
                 };
             };
             500: components["responses"]["InternalError"];
+        };
+    };
+    listContacts: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description One per user action (CONV-3); Python and Node propagate it to their logs. */
+                "X-Request-Id"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Contacts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        contacts: components["schemas"]["Contact"][];
+                    };
+                };
+            };
+        };
+    };
+    addContact: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description One per user action (CONV-3); Python and Node propagate it to their logs. */
+                "X-Request-Id"?: components["parameters"]["RequestId"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @example Laura */
+                    name: string;
+                    /** @example https://ilp.interledger-test.dev/laura */
+                    walletAddress: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Contact added. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contact"];
+                };
+            };
+            /** @description Invalid name or wallet. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Same name or same wallet already in the agenda. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deleteContact: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description One per user action (CONV-3); Python and Node propagate it to their logs. */
+                "X-Request-Id"?: components["parameters"]["RequestId"];
+            };
+            path: {
+                alias: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Contact removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown alias. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
 }

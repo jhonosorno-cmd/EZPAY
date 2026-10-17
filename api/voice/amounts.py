@@ -79,7 +79,7 @@ UNITS = {
     "novecientos": 900, "novecientas": 900,
 }
 UNIT_WORDS = {w for w, v in UNITS.items() if 1 <= v <= 9}
-NOISE = {"peso", "pesos", "cop", "de", "$"}
+NOISE = {"peso", "pesos", "cop", "de", "$", "colombiano", "colombianos"}
 # Jerga conocida: sin valor validado todavía (X-5), así que es ambigua. Con tabla -> multiplicador.
 SLANG_WORDS = {"luca", "lucas", "luka", "lukas", "barra", "barras", "palo", "palos", "k"}
 THOUSANDS = re.compile(r"[1-9][0-9]{0,2}(\.[0-9]{3})+")
@@ -232,6 +232,9 @@ def parse_amount(text: str | None, cfg: AssetConfig, slang: dict[str, int] | Non
     if t.startswith("-"):
         return _fail(AmountError.INVALID_AMOUNT)
     tokens = [w for w in re.split(r"\s+", t.replace("$", " ")) if w and w not in NOISE]
+    # "20.000 pesos" suele venir de la transcripción: un número formateado junto a palabras
+    # (los tokens sueltos formateados ya se resuelven arriba).
+    tokens = [w.replace(".", "") if re.fullmatch(r"\d{1,3}(?:\.\d{3})+", w) else w for w in tokens]
     if not tokens:
         return _fail(AmountError.INVALID_AMOUNT)
     scale = cfg.asset_scale

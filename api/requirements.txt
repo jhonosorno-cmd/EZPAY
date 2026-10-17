@@ -21,3 +21,7 @@ ctranslate2==4.8.3
 torch==2.14.1+cpu
 torchaudio==2.11.0+cpu
 speechbrain==1.1.2
+
+# Pruebas de api/ (tests/voice usa pytest). En macOS torch no tiene la variante +cpu: instalar
+# torch==2.14.1 y torchaudio sin el sufijo.
+pytest==8.4.2

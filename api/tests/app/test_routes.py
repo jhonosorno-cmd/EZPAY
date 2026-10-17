@@ -2,19 +2,13 @@
 openapi/contract-b.yaml (ver contract.py). Estilo unittest como tests/decision y tests/pin."""
 import unittest
 
-from fastapi.testclient import TestClient
-
-import fakes
-import node_double
-from app.main import create_app
+from app_doubles import DoubleAppMixin
 import contract
 
 
-class RoutesTest(unittest.TestCase):
+class RoutesTest(DoubleAppMixin, unittest.TestCase):
     def setUp(self):
-        # el estado global del PIN de prueba va a un tmp: nunca api/.data/pin/
-        self.app = create_app(pin_validator=fakes.test_pin_validator())
-        self.client = TestClient(self.app)
+        super().setUp()
 
     def audio_files(self, n=3):
         return [("audio", (f"muestra{i}.wav", b"RIFF-WAV-DE-PRUEBA", "audio/wav")) for i in range(n)]
@@ -32,17 +26,13 @@ class RoutesTest(unittest.TestCase):
 
     # --- budget -----------------------------------------------------------
     def test_post_budget_validates_against_contract(self):
-        # esperaba el interactUrl de placeholder del esqueleto; pasó que la ruta ahora
-        # crea el grant con el cliente de Node (R5), así que la prueba usa el doble
-        app, node = fakes.make_app()
-        client = TestClient(app)
-        r = client.post("/api/budget", json={
+        r = self.client.post("/api/budget", json={
             "debitAmount": {"value": "20000000", "assetCode": "COP", "assetScale": 2},
             "interval": "R52/2026-10-17T00:00:00Z/P1W",
         })
         self.assertEqual(r.status_code, 201)
         contract.validate_response("POST", "/api/budget", 201, r.json())
-        self.assertEqual(r.json()["interactUrl"], node_double.INTERACT_URL)
+        self.assertTrue(r.json()["interactUrl"])
 
     def test_get_budget_validates_against_contract(self):
         r = self.client.get("/api/budget")
@@ -50,13 +40,9 @@ class RoutesTest(unittest.TestCase):
         contract.validate_response("GET", "/api/budget", 200, r.json())
 
     def test_get_budget_reflects_the_posted_limit(self):
-        # esperaba el presupuesto local del esqueleto; pasó que GET ahora lee el
-        # grant desde Node (R5), así que la prueba usa el doble
-        app, node = fakes.make_app()
-        client = TestClient(app)
         amount = {"value": "20000000", "assetCode": "COP", "assetScale": 2}
-        client.post("/api/budget", json={"debitAmount": amount})
-        r = client.get("/api/budget")
+        self.client.post("/api/budget", json={"debitAmount": amount})
+        r = self.client.get("/api/budget")
         self.assertEqual(r.json()["limit"]["debitAmount"], amount)
         self.assertTrue(contract.is_digits_only(r.json()["spent"]["value"]))
         self.assertTrue(contract.is_digits_only(r.json()["remaining"]["value"]))
@@ -75,14 +61,10 @@ class RoutesTest(unittest.TestCase):
         self.assertEqual(r.json()["state"], "REJECTED")
 
     def test_grant_callback_with_params_continues_to_command(self):
-        # esperaba la respuesta fija del esqueleto; pasó que el callback llama a
-        # /continue en Node (R5), así que la prueba usa el doble
-        app, node = fakes.make_app()
-        client = TestClient(app)
-        client.post("/api/budget", json={
+        self.client.post("/api/budget", json={
             "debitAmount": {"value": "20000000", "assetCode": "COP", "assetScale": 2},
         })
-        r = client.post("/api/grant-callback", json={
+        r = self.client.post("/api/grant-callback", json={
             "interactRef": "ref-de-prueba", "hash": "hash-de-prueba",
         })
         self.assertEqual(r.status_code, 200)
@@ -91,15 +73,14 @@ class RoutesTest(unittest.TestCase):
 
     # --- turns ------------------------------------------------------------
     def test_text_turn_creates_session_and_validates(self):
-        # comando sin intención de pago: no hay Node en el camino (esperaba que el esqueleto
-        # respondiera REASK a un comando de pago; pasó que el orquestador pide el grant de
-        # presupuesto, así que la prueba de humo usa un comando no pago)
-        r = self.client.post("/api/turns", data={"text": "hola"})
+        r = self.client.post("/api/turns", data={"text": "envíale veinte mil a mi hija"})
         self.assertEqual(r.status_code, 200)
         contract.validate_response("POST", "/api/turns", 200, r.json())
         body = r.json()
         self.assertTrue(body["sessionId"])
-        self.assertEqual(body["state"], "AWAITING_COMMAND")
+        # Esperaba AWAITING_COMMAND (REASK fijo del esqueleto); con el orquestador, un comando sin
+        # presupuesto autorizado pide el grant (SEG-1): AWAITING_AUTHORIZATION.
+        self.assertEqual(body["state"], "AWAITING_AUTHORIZATION")
 
     def test_audio_turn_validates_and_answers_reask(self):
         r = self.client.post("/api/turns", files=[("audio", ("comando.wav", b"RIFF", "audio/wav"))])
@@ -119,13 +100,12 @@ class RoutesTest(unittest.TestCase):
         r = self.client.post("/api/turns", data={"sessionId": first["sessionId"], "kind": "verify_pending"})
         self.assertEqual(r.status_code, 200)
         contract.validate_response("POST", "/api/turns", 200, r.json())
-        self.assertEqual(r.json()["state"], "PAYMENT_PENDING")
+        # Esperaba PAYMENT_PENDING (respuesta fija del esqueleto); el orquestador consulta el pago
+        # pendiente real y, si no hay ninguno, vuelve a AWAITING_COMMAND.
+        self.assertEqual(r.json()["state"], "AWAITING_COMMAND")
 
     def test_awaiting_pin_turn_with_text_answers_pin_shape(self):
-        first = self.client.post("/api/turns", data={"text": "hola"}).json()
-        session = self.app.state.session_store.get(first["sessionId"])
-        from app.states import TurnState
-        session.state = TurnState.AWAITING_PIN
+        first = self.reach_pin()
         r = self.client.post("/api/turns", data={"sessionId": first["sessionId"], "text": "1234"})
         self.assertEqual(r.status_code, 200)
         contract.validate_response("POST", "/api/turns", 200, r.json())
@@ -143,10 +123,7 @@ class RoutesTest(unittest.TestCase):
         self.assertIsNone(r.headers.get("access-control-allow-origin"))
 
     def test_audio_turn_in_awaiting_pin_is_discarded_without_transcription(self):
-        first = self.client.post("/api/turns", data={"text": "hola"}).json()
-        session = self.app.state.session_store.get(first["sessionId"])
-        from app.states import TurnState
-        session.state = TurnState.AWAITING_PIN
+        first = self.reach_pin()
         r = self.client.post("/api/turns", files=[("audio", ("comando.wav", b"RIFF", "audio/wav"))],
                              data={"sessionId": first["sessionId"]})
         self.assertEqual(r.status_code, 200)

@@ -52,15 +52,26 @@ PAY_VERBS = {
     "paga", "pagale", "pague", "paguele", "pagar", "pagarle",
     "transfiere", "transfierele", "transfiera", "transfierale", "transferir", "transferirle",
     "consigna", "consignale", "consigne", "consignele", "consignar", "consignarle",
+    # subjuntivo de los pedidos corteses ("necesito que le envíes", "quiero que le mandes")
+    "envies", "mandes", "pases", "pagues", "transfieras", "consignes",
 }
 CANCEL_VERBS = {"cancela", "cancelar", "cancelalo", "cancele", "cancelelo", "olvida", "olvidalo",
                 "olvidelo", "deja", "dejalo", "dejelo", "para", "detente", "nada"}
 CANCEL_FILLERS = {"no", "mejor", "asi", "ya", "eso", "el", "envio", "pago", "todo", "mas"}
-PREFIXES = (("quiero",), ("quisiera",), ("necesito",), ("me", "gustaria"))
+PREFIXES = (("quiero",), ("quisiera",), ("necesito",), ("me", "gustaria"),
+            # pedidos (17 oct, prueba en la sala con Groq): "le quiero enviar…", "necesito que le envíes…".
+            # Las preguntas ("¿podrías/puedes enviar…?") siguen fuera de la gramática (decisión de Voz).
+            ("le", "quiero"), ("le", "quisiera"), ("que", "le"), ("que",))
+# Saludos y muletillas que la gente dice antes del verbo ("Hola, envíale…", "Oye, …", "Bueno, …").
+# Solo se quitan al inicio de la oración; sin un verbo de pago después siguen siendo UNKNOWN.
+LEADING_FILLERS = {"hola", "oye", "ok", "okay", "bueno", "listo", "si", "ey", "ezpay", "buenos", "buenas",
+                   "dias", "tardes", "noches"}
+THANKS = {"gracias", "muchas"}
 COURTESY = (("por", "favor"), ("porfa",), ("porfavor",))
 PREPOSITIONS = {"a", "para"}
 NUMBER_WORDS = set(UNITS) | {"mil", "millon", "millones", "medio"}
-AMOUNT_WORDS = NUMBER_WORDS | {"y", "o", "peso", "pesos", "cop", "de", "$"} | SLANG_WORDS
+AMOUNT_WORDS = (NUMBER_WORDS | {"y", "o", "peso", "pesos", "cop", "de", "$",
+                                "colombiano", "colombianos"} | SLANG_WORDS)
 _NUMERIC = re.compile(r"\$?[0-9][0-9.,]*")
 _WALLET_LIKE = re.compile(r"https?:|://|www\.|@|\$[a-z]")
 _SENTENCE_END = re.compile(r"(?<![0-9])\.|\.(?![0-9])|[?!;:]")
@@ -96,7 +107,16 @@ def _sentences(text: str) -> list[list[str]]:
     t = _WORD_HYPHEN.sub(" ", t)                           # "laura-vecina"; "-20" queda como "#20"
     t = _SPACE_PUNCT.sub(" ", t)
     t = _OTHER.sub("#", t)
-    return [s for s in (_drop(part.split(), COURTESY) for part in t.split("|")) if s]
+    return [_expand_k(s) for s in (_drop(part.split(), COURTESY) for part in t.split("|")) if s]
+
+
+def _expand_k(tokens: list[str]) -> list[str]:
+    """"20k" es como escribe Groq "veinte mil": dígitos seguidos de k son un monto, no jerga."""
+    out = []
+    for t in tokens:
+        m = re.fullmatch(r"(\d{1,3})k", t)
+        out.extend([m.group(1), "mil"] if m else [t])
+    return out
 
 
 def _is_cancel(tokens: list[str]) -> bool:
@@ -104,8 +124,10 @@ def _is_cancel(tokens: list[str]) -> bool:
 
 
 def _after_verb(tokens: list[str]) -> list[str] | None:
-    """Lo que sigue al verbo de pago (después de un prefijo opcional), o None si no empieza con uno."""
+    """Lo que sigue al verbo de pago (después de saludos y un prefijo opcional), o None si no empieza con uno."""
     i = 0
+    while i < len(tokens) and tokens[i] in LEADING_FILLERS:
+        i += 1
     while p := next((p for p in PREFIXES if tuple(tokens[i:i + len(p)]) == p), None):
         i += len(p)
     return tokens[i + 1:] if i < len(tokens) and tokens[i] in PAY_VERBS else None
@@ -181,6 +203,8 @@ def extract_intent(text: str | None, cfg: AssetConfig) -> Intent:
     if not isinstance(text, str) or len(text) > MAX_COMMAND_CHARS or not text.strip():
         return _NOT_A_COMMAND
     sentences = _sentences(text)
+    if len(sentences) > 1:  # "… a Laura. Gracias." : el agradecimiento suelto no es otra orden
+        sentences = [s for s in sentences if not set(s) <= THANKS] or sentences
     if not sentences:
         return _NOT_A_COMMAND
     pay = [s for s in sentences if _after_verb(s) is not None]

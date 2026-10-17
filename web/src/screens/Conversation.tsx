@@ -17,7 +17,7 @@ import { speak, unlockAudio } from "../voice/tts"
 type Conv = ReturnType<typeof useConversation>
 const CAN_SPEAK = ["AWAITING_COMMAND", "AWAITING_CONFIRMATION", "AWAITING_RECIPIENT_CHOICE", "PAYMENT_PENDING"]
 
-export function Conversation({ conv, onEnroll }: { conv: Conv; onEnroll: () => void }) {
+export function Conversation({ conv, onEnroll, onContacts }: { conv: Conv; onEnroll: () => void; onContacts: () => void }) {
   const { view, busy, sendText, sendAudio, restart } = conv
   const [budgetUrl, setBudgetUrl] = useState<string | null>(null)
   const [budget, setBudget] = useState<Budget | null>(null)
@@ -77,7 +77,16 @@ export function Conversation({ conv, onEnroll }: { conv: Conv; onEnroll: () => v
           </button>
         )}
 
-        {s === "AWAITING_CONFIRMATION" && (
+        {s === "AWAITING_CONFIRMATION" && view.challengePhrase && (
+          <section className="challenge" aria-label="Frase para confirmar">
+            <p className="receipt-label">Para confirmar, repite en voz alta</p>
+            <p className="challenge-phrase" lang="es">“{view.challengePhrase}”</p>
+            <p className="challenge-hint">Mantén presionado el micrófono y dila completa.</p>
+            <button className="pill pill-light" disabled={busy} onClick={() => sendText("no")}>No, cancelar</button>
+          </section>
+        )}
+
+        {s === "AWAITING_CONFIRMATION" && !view.challengePhrase && (
           <div className="row">
             <button className="pill pill-primary" disabled={busy} onClick={() => sendText("sí")}>Sí</button>
             <button className="pill pill-light" disabled={busy} onClick={() => sendText("no")}>No</button>
@@ -111,6 +120,10 @@ export function Conversation({ conv, onEnroll }: { conv: Conv; onEnroll: () => v
 
         {s === "AWAITING_COMMAND" && !hasBudget && !budgetUrl && (
           <button className="linkish" onClick={askBudget}>Autorizar presupuesto de $&nbsp;{formatAmount(DEMO_BUDGET)}</button>
+        )}
+
+        {(s === "AWAITING_COMMAND" || s === "COMPLETED" || s === "REJECTED") && (
+          <button className="pill pill-light" onClick={onContacts}>👥 Mis contactos</button>
         )}
 
         {s === "AWAITING_COMMAND" && enrolled === false && (

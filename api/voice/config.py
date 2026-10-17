@@ -11,7 +11,7 @@ AGENDA_PATH = Path(__file__).with_name("agenda_provisional.json")
 
 # Transcripción de voz (speech-transcription, H2). Segundos enteros: el paquete no usa float.
 AUDIO_MAX_DURATION_S = 30  # se lee de la cabecera antes de decodificar; más -> AUDIO_TOO_LONG
-REMOTE_TIMEOUT_S = 3       # plazo del proveedor externo (Groq); lo aplica el motor real (Fase 2)
+REMOTE_TIMEOUT_S = 6       # plazo del proveedor externo (Groq); lo aplica el motor real (Fase 2)
 TURN_BUDGET_S = 8          # plazo del turno; un retry-after que no cabe -> respaldo local
 MAX_REMOTE_ATTEMPTS = 2    # intento inicial más un reintento si el retry-after cabe en el plazo
 

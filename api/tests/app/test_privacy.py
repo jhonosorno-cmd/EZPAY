@@ -4,10 +4,7 @@ import json
 import logging
 import unittest
 
-from fastapi.testclient import TestClient
-
-from app.main import create_app
-from app.states import TurnState
+from app_doubles import DoubleAppMixin
 
 
 class LogCapture(logging.Handler):
@@ -19,22 +16,16 @@ class LogCapture(logging.Handler):
         self.lines.append(record.getMessage())
 
 
-class PrivacyTest(unittest.TestCase):
+class PrivacyTest(DoubleAppMixin, unittest.TestCase):
     def setUp(self):
-        # el estado global del PIN de prueba va a un tmp: nunca api/.data/pin/
-        import fakes
-
-        self.app = create_app(pin_validator=fakes.test_pin_validator())
-        self.client = TestClient(self.app)
+        super().setUp()
         self.capture = LogCapture()
         self.logger = logging.getLogger("api.app")
         self.logger.addHandler(self.capture)
         self.addCleanup(self.logger.removeHandler, self.capture)
 
     def pin_turn(self, pin):
-        first = self.client.post("/api/turns", data={"text": "hola"}).json()
-        session = self.app.state.session_store.get(first["sessionId"])
-        session.state = TurnState.AWAITING_PIN
+        first = self.reach_pin()  # AWAITING_PIN real (antes: estado forzado en el esqueleto)
         return first, self.client.post("/api/turns", data={"sessionId": first["sessionId"], "text": pin})
 
     def test_pin_is_never_in_the_logs(self):

@@ -23,6 +23,18 @@ describe("useConversation", () => {
     expect(f).toHaveBeenCalledTimes(1)
   })
 
+  it("desafío de voz (B11): guarda la frase a repetir y la limpia al salir de la confirmación", async () => {
+    const f = vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(async () => turn("AWAITING_CONFIRMATION", { challengePhrase: "El gato duerme tranquilo junto a la ventana." }))
+      .mockImplementationOnce(async () => turn("COMPLETED"))
+    const { result } = renderHook(() => useConversation({ speak: async () => {} }))
+    await act(async () => { await result.current.sendText("envíale 20 mil a laura") })
+    expect(result.current.view.challengePhrase).toBe("El gato duerme tranquilo junto a la ventana.")
+    await act(async () => { await result.current.sendText("no") })
+    expect(result.current.view.challengePhrase).toBeNull()
+    expect(f).toHaveBeenCalledTimes(2)
+  })
+
   it("guarda y reenvía el sessionId", async () => {
     const f = vi.spyOn(globalThis, "fetch").mockImplementation(async () => turn("AWAITING_CONFIRMATION"))
     const { result } = renderHook(() => useConversation({ speak: async () => {} }))

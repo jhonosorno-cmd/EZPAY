@@ -43,6 +43,11 @@ export function Enrollment({ onClose }: { onClose: (enrolled: boolean) => void }
     void rec.start()
   }
 
+  // Si se niega el permiso estando en "recording", no queda atascada: vuelve a "ready".
+  useEffect(() => {
+    if (rec.status === "denied") dispatch({ type: "MIC_DENIED" })
+  }, [rec.status])
+
   return (
     <div className="app">
       <header className="topbar enroll-top">
@@ -84,8 +89,14 @@ export function Enrollment({ onClose }: { onClose: (enrolled: boolean) => void }
                 ● Iniciar grabación
               </button>
             )}
-            {s.phase === "recording" && (
-              <button className="pill rec recording" onClick={rec.stop}>■ Detener grabación</button>
+            {s.phase === "recording" && rec.status !== "recording" && (
+              <button className="pill rec" disabled>Preparando el micrófono…</button>
+            )}
+            {s.phase === "recording" && rec.status === "recording" && (
+              <>
+                <p className="say-label" aria-live="polite">Habla ahora</p>
+                <button className="pill rec recording" onClick={rec.stop}>■ Detener grabación</button>
+              </>
             )}
             {s.phase === "review" && (
               <div className="review">
