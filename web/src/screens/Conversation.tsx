@@ -77,7 +77,16 @@ export function Conversation({ conv, onEnroll, onContacts }: { conv: Conv; onEnr
           </button>
         )}
 
-        {s === "AWAITING_CONFIRMATION" && (
+        {s === "AWAITING_CONFIRMATION" && view.challengePhrase && (
+          <section className="challenge" aria-label="Frase para confirmar">
+            <p className="receipt-label">Para confirmar, repite en voz alta</p>
+            <p className="challenge-phrase" lang="es">“{view.challengePhrase}”</p>
+            <p className="challenge-hint">Mantén presionado el micrófono y dila completa.</p>
+            <button className="pill pill-light" disabled={busy} onClick={() => sendText("no")}>No, cancelar</button>
+          </section>
+        )}
+
+        {s === "AWAITING_CONFIRMATION" && !view.challengePhrase && (
           <div className="row">
             <button className="pill pill-primary" disabled={busy} onClick={() => sendText("sí")}>Sí</button>
             <button className="pill pill-light" disabled={busy} onClick={() => sendText("no")}>No</button>

@@ -46,6 +46,8 @@ class Settings:
     default_budget_interval: str | None
     cors_origins: tuple[str, ...]
     warmup_local_whisper: bool
+    confirmation_challenge: bool = False
+    challenge_phrase_match_min: float = 0.80
 
     @property
     def high_amount_threshold(self) -> dict | None:
@@ -78,4 +80,7 @@ def load_settings() -> Settings:
         default_budget_interval=_env("EZPAY_DEFAULT_BUDGET_INTERVAL"),
         cors_origins=tuple(_env("EZPAY_CORS_ORIGINS", "http://localhost:5173").split(",")),
         warmup_local_whisper=_env("EZPAY_WARMUP_WHISPER", "0") == "1",
+        # Desafío de voz en la confirmación (B11). Bandera del orquestador; por defecto apagada (ML 2).
+        confirmation_challenge=_env("EZPAY_CONFIRMATION_CHALLENGE", "0") == "1",
+        challenge_phrase_match_min=float(_env("EZPAY_CHALLENGE_PHRASE_MATCH_MIN", "0.80")),
     )

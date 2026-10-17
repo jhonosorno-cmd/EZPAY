@@ -166,11 +166,12 @@ class FakePin:
         return PinResult("WRONG", n, max(0, 3 - n), False)
 
 
-def build(tmp: Path):
+def build(tmp: Path, challenge: bool = False):
     agenda = tmp / "agenda.json"
     agenda.write_text(json.dumps(AGENDA), encoding="utf-8")
     settings = replace(load_settings(), agenda_path=agenda, data_dir=tmp / "app", wallet_address="https://wallet.test/marta",
-                       asset_code="COP", asset_scale=2, warmup_local_whisper=False)
+                       asset_code="COP", asset_scale=2, warmup_local_whisper=False,
+                       confirmation_challenge=challenge, challenge_phrase_match_min=0.80)
     payments, voice, pin = FakePayments(), FakeVoice(), FakePin()
     contacts = ContactBook(tmp / "app" / "contacts.json", FakeResolver(), "COP", 2, settings.wallet_address, agenda)
     orch = Orchestrator(settings, payments, voice, pin_verifier=pin, contacts=contacts)

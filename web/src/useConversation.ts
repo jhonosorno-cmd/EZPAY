@@ -16,12 +16,13 @@ export type View = {
   interactUrl: string | null
   options: TurnResponse["options"]
   payment: TurnResponse["payment"]
+  challengePhrase: string | null // desafío de voz (B11): la frase que hay que repetir en voz alta
   errorCode: string | null // se muestra en letra pequeña si el código es desconocido
 }
 
 const START: View = {
   state: "AWAITING_COMMAND", say: "¿A quién le quieres enviar dinero?",
-  transcript: null, interactUrl: null, options: null, payment: null, errorCode: null,
+  transcript: null, interactUrl: null, options: null, payment: null, challengePhrase: null, errorCode: null,
 }
 
 export function useConversation({ speak }: { speak: (text: string) => Promise<void> }) {
@@ -41,7 +42,7 @@ export function useConversation({ speak }: { speak: (text: string) => Promise<vo
     const state = r.state as TurnState
     if (state === "COMPLETED" || state === "REJECTED") saveHandoffReason(null)
     setView({ state, say: r.say, transcript: r.transcript, interactUrl: r.interactUrl,
-      options: r.options, payment: r.payment, errorCode: null })
+      options: r.options, payment: r.payment, challengePhrase: r.challengePhrase ?? null, errorCode: null })
     void speak(r.say)
   }, [speak])
 

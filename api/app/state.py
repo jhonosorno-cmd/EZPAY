@@ -33,6 +33,11 @@ class Command:
     idempotency_key: str | None = None
     unclear_replies: int = 0
     pin_ok: bool = False
+    # Desafío de voz (B11): modo elegido, frase pedida, intentos y la última confirmación (para la fase PIN)
+    challenge: bool = False
+    phrase: str | None = None
+    challenge_attempts: int = 0
+    confirmation: dict | None = None
 
 
 @dataclass
@@ -41,6 +46,7 @@ class Session:
     state: TurnState = TurnState.AWAITING_COMMAND
     command: Command | None = None
     options: tuple = ()               # voice.contacts.Option ofrecidas en AWAITING_RECIPIENT_CHOICE
+    used_phrases: set = field(default_factory=set)  # frases del desafío ya pedidas (sin repetir)
     created_at: float = field(default_factory=time.monotonic)  # última actividad
 
     def reset_command(self) -> None:

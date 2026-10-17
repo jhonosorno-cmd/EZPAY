@@ -215,6 +215,8 @@ export interface components {
                 alias: string;
                 name: string;
             }[] | null;
+            /** @description Voice challenge (B11, add-ml2-integration P3): in `AWAITING_CONFIRMATION`, the phrase the user must repeat out loud to confirm; `null` when a plain "sí" is enough. Picked at random from the bank, never by an LLM. */
+            challengePhrase?: string | null;
             /** @description In `COMPLETED`, and in `PAYMENT_PENDING` when a `paymentId` already exists. */
             payment: {
                 paymentId: string;

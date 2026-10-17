@@ -542,6 +542,14 @@ components:
             properties:
               alias: { type: string }
               name: { type: string }
+        challengePhrase:
+          type: string
+          nullable: true
+          x-proposed: true
+          description: >-
+            Voice challenge (B11, add-ml2-integration P3): in `AWAITING_CONFIRMATION`, the phrase the
+            user must repeat out loud to confirm; `null` when a plain "sí" is enough. Picked at random
+            from the bank, never by an LLM.
         payment:
           type: object
           nullable: true

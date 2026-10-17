@@ -25,6 +25,9 @@ from pin import verify_pin
 from voice import phrases
 from voice.amounts import Amount as VoiceAmount
 from voice.amounts import AssetConfig
+import random
+
+from voice.challenge import load_bank, phrase_match, pick_phrase
 from voice.contacts import Kind, Resolution, resolve_choice, resolve_recipient
 from voice.intents import extract_intent
 from voice.replies import Reply, classify_reply
@@ -64,6 +67,7 @@ class TurnResult:
     interact_url: str | None = None
     options: list | None = None
     payment: dict | None = None
+    challenge_phrase: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -74,6 +78,8 @@ class TurnResult:
             "interactUrl": self.interact_url,
             "options": self.options,
             "payment": self.payment,
+            # x-proposed (P3 de add-ml2-integration): la frase del desafío que la web muestra
+            "challengePhrase": self.challenge_phrase,
         }
 
 
@@ -104,6 +110,8 @@ class Orchestrator:
         self.asset = AssetConfig(settings.asset_code, settings.asset_scale)
         self._verify_pin = pin_verifier
         self._clock = clock
+        self._bank = load_bank() if settings.confirmation_challenge else []
+        self._rng = random.SystemRandom()  # la frase la elige el backend al azar, nunca un LLM
         self._lock = threading.RLock()  # un turno a la vez: un solo usuario en el MVP
 
     # ================================================================ rutas
@@ -184,12 +192,18 @@ class Orchestrator:
         transcript = text
         if audio is not None:
             is_command = session.state not in (TurnState.AWAITING_CONFIRMATION, TurnState.AWAITING_RECIPIENT_CHOICE)
-            transcript, voice, confidence = self._transcribe(audio, rid, verify=is_command)
+            is_challenge = (session.state is TurnState.AWAITING_CONFIRMATION and session.command is not None
+                            and session.command.challenge)
+            # D4: solo se verifica el comando; con el desafío (B11) también la voz de la frase repetida
+            transcript, voice, confidence = self._transcribe(audio, rid, verify=is_command or is_challenge)
             if transcript is None:
-                return TurnResult(session, prefix + phrases.say(phrases.Situation.NO_SPEECH), transcript="")
+                cmd = session.command
+                return TurnResult(session, prefix + phrases.say(phrases.Situation.NO_SPEECH), transcript="",
+                                  challenge_phrase=cmd.phrase if cmd is not None and cmd.challenge else None)
 
         if session.state is TurnState.AWAITING_CONFIRMATION and session.command is not None:
-            return self._prefixed(prefix, self._confirmation_turn(session, transcript, rid))
+            return self._prefixed(prefix, self._confirmation_turn(session, transcript, rid,
+                                                                   reply_voice=voice if audio is not None else None))
         if session.state is TurnState.AWAITING_RECIPIENT_CHOICE and session.command is not None:
             return self._prefixed(prefix, self._choice_turn(session, transcript, rid))
         return self._prefixed(prefix, self._command_turn(session, transcript, voice, confidence, rid))
@@ -310,23 +324,36 @@ class Orchestrator:
             return TurnResult(session, phrases.say(phrases.Situation.NOT_UNDERSTOOD))
         result = self._verify_pin(text.strip(), session.id)
         pin_ctx = {"result": result.result, "sessionFailures": result.sessionFailures, "locked": result.locked}
-        ctx = self._context("PIN", cmd, pin=pin_ctx)
+        ctx = self._context("PIN", cmd, pin=pin_ctx, confirmation=cmd.confirmation if cmd.challenge else None)
         out = self._decide(session, cmd, ctx, None, rid, pin_remaining=result.remaining)
         out.transcript = None  # B-7: nunca el PIN
         return out
 
     # ------------------------------------------------------------ confirmación
-    def _confirmation_turn(self, session, text, rid) -> TurnResult:
+    def _confirmation_turn(self, session, text, rid, reply_voice=None) -> TurnResult:
         cmd = session.command
         reply = classify_reply(text)
-        ctx = self._context("CONFIRMATION", cmd, reply=reply.value)
+        confirmation = None
+        if cmd.challenge:
+            # B11: phraseScore lo mide Voz (null si no hubo respuesta por voz); voice es la de la RESPUESTA
+            spoken = reply_voice is not None
+            confirmation = {
+                "mode": "CHALLENGE",
+                "phraseScore": round(phrase_match(text, cmd.phrase), 4) if spoken else None,
+                "voice": {"status": reply_voice["status"], "score": reply_voice.get("score")} if spoken else None,
+                "challengeAttempts": cmd.challenge_attempts,
+            }
+            cmd.confirmation = confirmation
+            logger.info("challenge requestId=%s attempts=%d score=%s voice=%s", rid, cmd.challenge_attempts,
+                        confirmation["phraseScore"], (confirmation["voice"] or {}).get("status"))
+        ctx = self._context("CONFIRMATION", cmd, reply=reply.value, confirmation=confirmation)
         out = self._decide(session, cmd, ctx, text, rid)
         if reply is Reply.UNCLEAR:
             cmd.unclear_replies += 1
         return out
 
     # ================================================================ motor
-    def _context(self, phase, cmd, *, reply=None, pin=None) -> dict:
+    def _context(self, phase, cmd, *, reply=None, pin=None, confirmation=None) -> dict:
         resolution = cmd.resolution
         if resolution is None or resolution.kind is Kind.UNCLEAR:
             res = {"kind": "NOT_FOUND"}
@@ -342,7 +369,7 @@ class Orchestrator:
         pp = self.wallet.pending_payment
         if pp is not None:
             pending = {"recipient": pp.receiver, "createdAt": pp.created_at, "status": "PROCESSING"}
-        return {
+        ctx = {
             "phase": phase,
             "intent": cmd.intent,
             "resolution": res,
@@ -362,8 +389,13 @@ class Orchestrator:
                 "pendingWindowSeconds": self.settings.pending_window_seconds,
                 "minIntentConfidence": None,
                 "minTranscriptConfidence": None,
+                "confirmationChallenge": self.settings.confirmation_challenge,
+                "challengePhraseMatchMin": self.settings.challenge_phrase_match_min,
             },
         }
+        if confirmation is not None:
+            ctx["confirmation"] = confirmation
+        return ctx
 
     def _decide(self, session, cmd, ctx_dict, transcript, rid, pin_remaining=None) -> TurnResult:
         try:
@@ -375,7 +407,19 @@ class Orchestrator:
             raise ApiFailure(500, "INTERNAL_ERROR", "Error interno") from None
         logger.info("decision requestId=%s phase=%s decision=%s reason=%s", rid, ctx_dict["phase"],
                     decision.decision.value, decision.reason.value)
+        if self._choose_challenge(ctx_dict, decision, cmd):
+            # Modo CHALLENGE (P5): mismo context con la confirmación vacía para que say_situation
+            # elija CONFIRM_CHALLENGE / CONFIRM_CHALLENGE_OVERRUN.
+            cmd.challenge, cmd.challenge_attempts, cmd.confirmation = True, 0, None
+            cmd.phrase = self._next_phrase(session)
+            with_challenge = dict(ctx_dict, confirmation={"mode": "CHALLENGE", "phraseScore": None, "voice": None,
+                                                         "challengeAttempts": 0})
+            situation = say_situation(decision, parse_context(with_challenge))
+        elif decision.reason is Reason.CHALLENGE_RETRY:
+            cmd.challenge_attempts += 1          # se repite UNA vez, con otra frase del banco
+            cmd.phrase = self._next_phrase(session)
         say = self._say(situation, cmd, pin_remaining) if situation else ""
+        phrase_out = cmd.phrase if cmd.challenge and decision.decision is DecisionType.ASK_CONFIRM else None
         kind = decision.decision
 
         if kind is DecisionType.REASK:
@@ -393,7 +437,7 @@ class Orchestrator:
             if decision.reason is Reason.PIN_CORRECT:
                 cmd.pin_ok = True
             session.state = TurnState.AWAITING_CONFIRMATION
-            return TurnResult(session, say, transcript=transcript)
+            return TurnResult(session, say, transcript=transcript, challenge_phrase=phrase_out)
         if kind is DecisionType.REQUIRE_AUTH:
             if decision.reason is Reason.NO_BUDGET_GRANT:
                 return self._start_budget_auth(session, say, transcript, rid)
@@ -407,6 +451,19 @@ class Orchestrator:
         session.reset_command()
         self._discard_excess(rid)
         return TurnResult(session, say, transcript=transcript)
+
+    def _choose_challenge(self, ctx_dict, decision, cmd) -> bool:
+        """P5: CHALLENGE solo con la bandera activa, ASK_CONFIRM directo de la fase COMMAND y la voz del
+        comando VERIFIED. Un pago que pasó por PIN se confirma con "sí" (REPLY): no hay ciclos de PIN."""
+        return (self.settings.confirmation_challenge and bool(self._bank)
+                and ctx_dict["phase"] == "COMMAND" and decision.decision is DecisionType.ASK_CONFIRM
+                and cmd.voice.get("status") == "VERIFIED")
+
+    def _next_phrase(self, session) -> str:
+        last = session.command.phrase if session.command else None
+        phrase = pick_phrase(self._bank, session.used_phrases, self._rng, last=last)
+        session.used_phrases.add(phrase)
+        return phrase
 
     def _say(self, situation: str, cmd, pin_remaining) -> str:
         name = situation
@@ -426,6 +483,8 @@ class Orchestrator:
             available["amount"] = _vamount(cmd.quote["receiveAmount"])
         elif cmd.intent.get("amount"):
             available["amount"] = _vamount(cmd.intent["amount"])
+        if cmd.phrase:
+            available["phrase"] = cmd.phrase
         required = phrases.REQUIRED.get(sit, set())
         return phrases.say(sit, **{k: available[k] for k in required})
 
