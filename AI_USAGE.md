@@ -6,19 +6,37 @@ integrante completa su sección y una persona consolida antes de las 10:45 del s
 
 El texto real de los prompts está en [`prompts/`](prompts/).
 
+## Resumen por área
+
+La versión oficial (rama `main` después del PR de la app integrada) junta tres áreas. Cada una
+usó IA bajo supervisión humana; el detalle por archivo está en [Uso por componente](#uso-por-componente).
+
+| Área | Qué cubre | Integrante y rol | Herramientas | Prompts |
+|---|---|---|---|---|
+| **Motor** (decisión, PIN, hablante) | `api/decision/`, `api/pin/`, `api/speaker/`, `api/integration.py`, `verificacion-ml2/`, specs `add-decision-engine` y `add-ml2-integration` | @Valdex328, Verificación y calidad (ML 2) | Claude Code (Claude Opus 5.5 y Claude Sonnet 5.5); OpenCode (`zai-org/GLM-5.3-Flash`, agentes Constructor de Specs y Builder) | [`prompts/Valdex328/`](prompts/Valdex328/) (01 a 14), [`prompts/pre-evento/Valdex328/`](prompts/pre-evento/Valdex328/) |
+| **Motor** (voz) | `api/voice/` (montos, intención, agenda, respuestas, catálogo de `say`, transcripción, desafío), scripts de prueba por voz, spec `add-voice-understanding` | @Sebasruiz00, Voz (ML 1) | Claude Code (Claude Sonnet 5.5 y Claude Opus 5.5); OpenCode (`featherless:zai-org/GLM-5.3-Flash`, agente Builder) dirigido por Claude Code | [`prompts/Sebasruiz00/`](prompts/Sebasruiz00/) (00 a 18) |
+| **Back** (pagos) | `payments/` (Node + Open Payments), `openapi/` (Contratos A y B y mocks), `api/payments_client/`, esqueleto FastAPI de `api/app/`, `docs/flujos/`, specs `add-payments-service` y `add-payments-client` | @jhonosorno-cmd, Pagos | Claude Code (Claude Sonnet 5.5) como supervisor y su subagente `general-purpose`; Builders de OpenCode (`featherless:zai-org/GLM-5.3-Flash`) y Claude `haiku` | [`prompts/jhonosorno-cmd/`](prompts/jhonosorno-cmd/) (01 a 03) y [`prompts/jhonosorno-cmd/builder/`](prompts/jhonosorno-cmd/builder/) (00 a 11) |
+| **Back** (integración) | Orquestador del turno y rutas del Contrato B en `api/app/` sobre los motores, agenda de contactos, Groq con respaldo local, desafío de voz, PIN de demo y la integración final con el Node real | @rualesjuan-ui, Frontend (respaldo del FastAPI) | Claude Code (Claude Opus 5.5 y Claude Sonnet 5.5), dentro de Traycer | [`prompts/rualesjuan-ui/`](prompts/rualesjuan-ui/) (04 a 08) |
+| **Front** | `web/` (React + Vite: conversación, grabación, enrolamiento, PIN, contactos, desafío de voz), spec `add-voice-web-client` | @rualesjuan-ui, Frontend | Claude Code (Claude Opus 5.5); OpenCode (`zai-org/GLM-5.3-Flash`, agente Builder) | [`prompts/rualesjuan-ui/`](prompts/rualesjuan-ui/) (01 a 03, 05 a 07) |
+
+En las tres áreas se siguió la misma regla: spec primero, pruebas de los escenarios antes del
+código (vistas en rojo), y una persona o un agente supervisor que lee el diff y vuelve a correr la
+suite. Ningún prompt registrado contiene llaves, tokens ni audio (se reemplazan por `<redacted>`).
+
 ## Herramientas
 
-- Claude Code (modelo Claude Sonnet 5.5): rol Pagos. Escribe los contratos OpenAPI, las pruebas de
-  los mocks y la documentación, a partir de `docs/` y `openspec/`.
-- Claude Code (Claude Sonnet 5.5 y Claude Opus 5.5): módulo de voz `api/voice/`, sus pruebas y el registro de prompts (rol Voz)
-- Subagente `general-purpose` de Claude Code: rol Pagos. Escribe los diagramas de flujo de
-  `docs/flujos/` a partir de los specs, los contratos y los PRs abiertos, bajo supervisión de
-  Claude Code.
-- Builder del rol Pagos: agente de opencode con el modelo `featherless:zai-org/GLM-5.3-Flash`. Porta
-  y corrige `payments/` y escribe sus pruebas, bajo supervisión de Claude Code (Claude Sonnet 5.5),
-  que lee cada diff y vuelve a correr las pruebas.
-- Claude Code (Claude Opus 5.5 y Claude Sonnet 5.5) y OpenCode (modelo `zai-org/GLM-5.3-Flash`, agentes Constructor de Specs y Builder): rol Verificación y calidad (ML 2). Los prompts están en `prompts/Valdex328/`.
-- OpenCode (agente Builder, modelo `zai-org/GLM-5.3-Flash`): rol Frontend. Escribe `web/` y el spec `add-voice-web-client` a partir de `docs/` y `openspec/`. Los prompts están en `prompts/rualesjuan-ui/`.
+- **Claude Code** (Claude Opus 5.5 y Claude Sonnet 5.5): herramienta principal de las cuatro
+  personas. Specs, pruebas, código de `api/`, `web/` y `openapi/`, revisión adversarial,
+  supervisión de los builders y registro de prompts.
+- **Subagente `general-purpose` de Claude Code**: rol Pagos. Diagramas de flujo de `docs/flujos/`
+  a partir de los specs, los contratos y los PRs abiertos.
+- **OpenCode** (modelo `zai-org/GLM-5.3-Flash` vía Featherless): agentes Builder y Constructor de
+  Specs. Portan y corrigen `payments/`, escriben `api/payments_client/`, partes de `api/voice/`,
+  `api/decision/`, `api/pin/`, `api/speaker/` y de `web/`, siempre bajo un supervisor de Claude
+  Code que lee cada diff y vuelve a correr las pruebas.
+- **Claude `haiku`**: Builder 2 de Pagos en la última parte del orquestador del turno.
+- **Traycer**: entorno donde corrieron las sesiones de Claude Code del rol Frontend (worktrees y
+  agentes); no genera código por sí mismo.
 
 ## Uso por componente
 
@@ -115,8 +133,9 @@ El texto real de los prompts está en [`prompts/`](prompts/).
 | `openspec/changes/add-payments-service/specs/payments-service/spec.md`, `openspec/changes/add-payments-client/specs/payments-client/spec.md` (requisitos de `INVALID_REQUEST`) | Pagos | Claude Code (supervisor) | Requisito "Petición mal formada" para Node y "`INVALID_REQUEST` es un error del llamador" para el cliente de Python, con escenarios | `openspec validate --strict` válido en ambos cambios. Pendiente: lectura de Alexander (@jhonosorno-cmd) |
 | `payments/experiments/one-off-grant-real.md` | Pagos | Builder 1 (opencode, `featherless:zai-org/GLM-5.3-Flash`) y Claude Code (supervisor) | Informe de la corrida real del grant puntual semanal: un pago de 500,00 COP y cancelación con `grant.cancel` (lectura posterior con 403). Generado por el script con datos de lista blanca | Revisado por el supervisor: sin tokens, URLs de grants ni wallets completas. Pendiente: lectura de Alexander (@jhonosorno-cmd) |
 | `payments/src/http/app.ts`, `payments/src/domain/service.ts`, `payments/test/contract-errors.test.ts`, `payments/test/contract.test.ts`, `payments/test/http.test.ts` (`INVALID_REQUEST`) | Pagos | Builder 1 (opencode, `featherless:zai-org/GLM-5.3-Flash`) y Claude Code (supervisor) | Ruta desconocida, JSON inválido y campos obligatorios faltantes o inválidos responden `400 INVALID_REQUEST` en vez de `500 INTERNAL_ERROR` (contrato v1.2, AB-1) | 8 pruebas vistas fallar antes del cambio; 80 de 80 y typecheck en verde, ejecutados por el supervisor con el doble de Open Payments. Pendiente: lectura de Alexander (@jhonosorno-cmd) |
-| `api/app/orchestrator.py`, `api/app/engine_context.py`, `api/app/ports.py`, `api/app/main.py`, `api/app/sessions.py`, `api/app/turns.py`, `api/app/config.py` (orquestador del turno) | Pagos | Builder 2 (opencode `featherless:zai-org/GLM-5.3-Flash`, luego Claude `haiku`) y Claude Code (supervisor) | Orquestador del turno: puertos de transcripción y verificación de hablante, contexto del motor, fase de comando, PIN local, presupuesto y callback, pago con Idempotency-Key y grant puntual, historial y elección de destinatario; `400 INVALID_REQUEST` | Revisado por el supervisor: pruebas de `app`, `payments_client`, `decision` y `pin` ejecutadas sobre la rama mezclada con `main`; arranque de uvicorn en segundo plano; el PIN no pasa a sesión, logs ni Node; sin secretos en el diff. Se corrigió que las pruebas compartieran el estado del PIN persistido |
+| `api/app/orchestrator.py`, `api/app/engine_context.py`, `api/app/ports.py`, `api/app/main.py`, `api/app/sessions.py`, `api/app/turns.py`, `api/app/config.py` (orquestador del turno) | Pagos | Builder 2 (opencode `featherless:zai-org/GLM-5.3-Flash`, luego Claude `haiku`) y Claude Code (supervisor) | (Reemplazado en la versión oficial por el orquestador integrado; ver la última fila.) Orquestador del turno: puertos de transcripción y verificación de hablante, contexto del motor, fase de comando, PIN local, presupuesto y callback, pago con Idempotency-Key y grant puntual, historial y elección de destinatario; `400 INVALID_REQUEST` | Revisado por el supervisor: pruebas de `app`, `payments_client`, `decision` y `pin` ejecutadas sobre la rama mezclada con `main`; arranque de uvicorn en segundo plano; el PIN no pasa a sesión, logs ni Node; sin secretos en el diff. Se corrigió que las pruebas compartieran el estado del PIN persistido |
 | `api/tests/app/**` (pruebas del orquestador) | Pagos | Builder 2 (opencode y luego Claude `haiku`) y Claude Code (supervisor) | Pruebas por escenario del spec `turn-orchestration` con Node simulado, más el aislamiento del estado del PIN y una prueba guardia | Ejecutadas por el supervisor dos veces seguidas con el estado limpio (113 pruebas); la guardia no se forzó a fallar |
+| Merge de la versión oficial: `api/app/` y `api/tests/app/`, `api/scripts/set_demo_pin.py`, `api/tests/pin/test_demo_pin.py`, este `AI_USAGE.md` | Frontend (integración) | Claude Code (Claude Opus 5.5) | Llevar la app integrada (PR #30) a `main` como versión oficial. Al mezclar `main`, el orquestador de las filas anteriores (PR #31) chocó con el integrado; se dejó el integrado, que es el probado de punta a punta con el Node real, y se quitaron `engine_context.py`, `ports.py`, `sessions.py`, `turns.py` y sus pruebas (siguen en el historial de git). Script del PIN de demo 1234 y resumen por área de este archivo (`prompts/rualesjuan-ui/08-version-oficial.md`) | Suite completa tras el merge: `api/` 1180, `web/` 87, `payments/` 80, en verde. Pendiente: OK de Alexander (@jhonosorno-cmd) a reemplazar su orquestador |
 
 ## Archivos con mínima o ninguna IA
 
